@@ -1,5 +1,5 @@
 /*
- * bms_wdt.h
+ * wdt.h
  *
  * Created: 14/02/2026 15:06:44
  * Author : Vladislav Gyurov
