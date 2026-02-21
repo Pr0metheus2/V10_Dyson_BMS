@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.20)
 
 project(samd20_firmware C ASM)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # -----------------------------------------------------------------------------
 # MCU / CPU
 # -----------------------------------------------------------------------------
@@ -58,6 +60,7 @@ set(COMMON_C_FLAGS
     -Wunreachable-code
     -Wcast-align
     --param max-inline-insns-single=500
+    -Wno-overflow
 )
 
 add_compile_options(${COMMON_C_FLAGS})
@@ -75,6 +78,8 @@ add_compile_definitions(
     ADC_CALLBACK_MODE=false
     EXTINT_CALLBACK_MODE=true
     USART_CALLBACK_MODE=true
+    TC_ASYNC=true
+    WDT_CALLBACK_MODE=true
 )
 
 # -----------------------------------------------------------------------------
@@ -131,6 +136,8 @@ include_directories(
     src/ASF/sam0/drivers/adc
     src/ASF/sam0/drivers/adc/adc_sam_d_r_h
     src/ASF/sam0/drivers/nvm
+    src/ASF/sam0/drivers/tc
+    src/ASF/sam0/drivers/wdt
     src/ASF/sam0/services/eeprom/emulator/main_array
     src/ASF/thirdparty/CMSIS/Include
     src/ASF/thirdparty/CMSIS/Lib/GCC
@@ -177,3 +184,13 @@ add_custom_target(flash
     COMMENT "Flashing $<TARGET_FILE:${PROJECT_NAME}.elf> using OpenOCD"
 )
 
+# This will unlock (and fully erase) a Dyson pack with the firmware protection enabled
+# It will need to be programmed after this
+add_custom_target(unlock
+    COMMAND openocd
+        -f ${OPENOCD_CFG}
+        -c "\"init; at91samd.cpu mwb 0x41002100 0x10; sleep 500; reset; halt; exit\""
+    DEPENDS ${PROJECT_NAME}.elf
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Flashing $<TARGET_FILE:${PROJECT_NAME}.elf> using OpenOCD"
+)
