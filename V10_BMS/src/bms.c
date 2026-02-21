@@ -113,6 +113,10 @@ void bms_init() {
 	system_init();
 	//Initialise the delay system
 	delay_init();
+
+	//Initialise the timer system
+	sw_timer_init();
+
 	//Set up the pins
 	pins_init();
 	
@@ -138,6 +142,8 @@ void bms_init() {
 	//Enable interrupts
 	interrupts_init();
 
+	//Enable watchdog
+	wdt_init();
 }
 	
 bool bms_is_safe_to_discharge() {
