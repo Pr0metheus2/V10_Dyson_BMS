@@ -20,7 +20,7 @@
 #include "serial_debug.h"
 #include "config.h"
 #include "sw_timer.h"
-#include "wdt.h"
+#include "bms_wdt.h"
 
 void pins_init(void);
 

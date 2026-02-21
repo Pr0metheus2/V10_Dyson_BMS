@@ -97,7 +97,7 @@ void usart_read_callback(struct usart_module *const usart_module) {
 			if (serial_read_buffer[startFrame + MSG_NUM_OFFSET] == 0x06 || serial_read_buffer[startFrame + MSG_NUM_OFFSET] == 0x03) {
 				if (serial_read_buffer[startFrame+ MSG_ERR_CODE_OFFSET] == 0x01) {
 #ifdef SERIAL_DEBUG
-					serial_debug_send_message("USART message: Error from vacuum: FILTER\r\n");	
+					serial_debug_send_message("Vac err: FILTER\r\n");	
 #endif
 					leds_show_filter_err_status(true);
 				}
@@ -108,7 +108,7 @@ void usart_read_callback(struct usart_module *const usart_module) {
 			else if (serial_read_buffer[startFrame + MSG_NUM_OFFSET] == 0x04 ||serial_read_buffer[startFrame + MSG_NUM_OFFSET] == 0x07) {
 				if (serial_read_buffer[startFrame+ MSG_ERR_CODE_OFFSET] == 0x01) {
 #ifdef SERIAL_DEBUG
-					serial_debug_send_message("USART message: Error from vacuum: BLOCKED\r\n");
+					serial_debug_send_message("Vac err: BLOCKED\r\n");
 #endif
 					leds_show_blocked_err_status(true);
 				}
@@ -118,7 +118,10 @@ void usart_read_callback(struct usart_module *const usart_module) {
 			}			
 		}	
 	}
-	//Queue up next read.*/	usart_read_buffer_job(&usart_instance, (uint8_t *)serial_read_buffer, 40);}
+	//Queue up next read.*/
+	usart_read_buffer_job(&usart_instance, (uint8_t *)serial_read_buffer, 40);
+}
+
 
 void serial_init() {	
 	//Set up the pinmux settings for SERCOM2
@@ -145,7 +148,9 @@ void serial_init() {
 	usart_enable_callback(&usart_instance, USART_CALLBACK_BUFFER_RECEIVED);
 	
 	usart_enable(&usart_instance);
-	//Start read job - the next one is kicked off by the above callback	usart_read_buffer_job(&usart_instance, (uint8_t *)serial_read_buffer, 40);}
+	//Start read job - the next one is kicked off by the above callback
+	usart_read_buffer_job(&usart_instance, (uint8_t *)serial_read_buffer, 40);
+}
 
 void serial_send_next_message(){	
 	uint8_t *data;

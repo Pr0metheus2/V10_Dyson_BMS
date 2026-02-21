@@ -206,7 +206,7 @@ bool bms_is_safe_to_discharge() {
 		bq7693_write_register(SYS_STAT, 0x02);
 
 #ifdef SERIAL_DEBUG
-		sprintf(debug_msg_buffer, "%s: BMS IC Short Circuit Trip\r\n", __FUNCTION__);
+		sprintf(debug_msg_buffer, "%s: Short Circuit Trip\r\n", __FUNCTION__);
 		serial_debug_send_message(debug_msg_buffer);
 #endif	
 
@@ -216,7 +216,7 @@ bool bms_is_safe_to_discharge() {
 		bq7693_write_register(SYS_STAT, 0x08);
 
 #ifdef SERIAL_DEBUG
-	sprintf(debug_msg_buffer, "%s: BMS IC Undervoltage Trip\r\n", __FUNCTION__);
+	sprintf(debug_msg_buffer, "%s: Undervoltage Trip\r\n", __FUNCTION__);
 	serial_debug_send_message(debug_msg_buffer);
 #endif
 
@@ -241,7 +241,7 @@ bool bms_is_safe_to_charge() {
 			bms_error = BMS_ERR_CELL_FAIL;	
 
 #ifdef SERIAL_DEBUG
-		sprintf(debug_msg_buffer, "%s: Cell %d below min charge voltage %d, min %d\r\n", __FUNCTION__, i, cell_voltages[i], CELL_LOWEST_CHARGE_VOLTAGE);
+		sprintf(debug_msg_buffer, "%s: Cell %d @ %dV (min %dV)\r\n", __FUNCTION__, i, cell_voltages[i], CELL_LOWEST_CHARGE_VOLTAGE);
 		serial_debug_send_message(debug_msg_buffer);
 #endif
 
