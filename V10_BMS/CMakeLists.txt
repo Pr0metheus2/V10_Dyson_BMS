@@ -166,6 +166,7 @@ target_link_libraries(${PROJECT_NAME}.elf m)
 # OpenOCD flash target
 # -----------------------------------------------------------------------------
 set(OPENOCD_CFG ${CMAKE_SOURCE_DIR}/openocd_samd20.cfg)
+# set(OPENOCD_CFG ${CMAKE_SOURCE_DIR}/openocd_ice_samd20.cfg)
 
 add_custom_target(flash
     COMMAND openocd
