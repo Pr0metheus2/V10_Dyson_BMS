@@ -52,9 +52,6 @@
  * running the ASF driver selector tool. Any changes will be discarded.
  */
 
-// From module: ADC - Analog-to-Digital Converter (Polled APIs)
-#include <adc.h>
-
 // From module: Common SAM0 compiler driver
 #include <compiler.h>
 #include <status_codes.h>
@@ -124,11 +121,12 @@
 // From module: SYSTEM - Reset Management for SAM D20/D21/R21/D09/D10/D11/DA/HA
 #include <reset.h>
 
-// From module: TC - Timer Counter (Polled APIs)
+// From module: TC - Timer Counter (Callback APIs)
 #include <tc.h>
 #include <tc_interrupt.h>
 
-// From module: WDT - Watchdog Timer (Polled APIs)
+// From module: WDT - Watchdog Timer (Callback APIs)
 #include <wdt.h>
+#include <wdt_callback.h>
 
 #endif // ASF_H
