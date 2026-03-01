@@ -245,7 +245,6 @@
     <file path="src/ASF/sam0/drivers/tc/tc_interrupt.c" framework="" version="3.52.0" source="sam0\drivers\tc\tc_interrupt.c" changed="False" content-id="Atmel.ASF" />
     <file path="src/ASF/sam0/drivers/tc/tc_interrupt.h" framework="" version="3.52.0" source="sam0\drivers\tc\tc_interrupt.h" changed="False" content-id="Atmel.ASF" />
     <file path="src/ASF/sam0/drivers/tc/tc.h" framework="" version="3.52.0" source="sam0\drivers\tc\tc.h" changed="False" content-id="Atmel.ASF" />
-    <file path="src/ASF/sam0/drivers/tc/tc_sam_d_r_h/tc.c" framework="" version="3.52.0" source="sam0\drivers\tc\tc_sam_d_r_h\tc.c" changed="False" content-id="Atmel.ASF" />
   </files>
   <documentation help="https://asf.microchip.com/docs/3.52.0/common.applications.user_application.sam0_system.user_board.atsamd20e15/html/index.html" />
   <offline-documentation help="" />
@@ -332,7 +331,6 @@
       <Value>../src/ASF/sam0/services/eeprom/emulator/main_array</Value>
       <Value>../src/ASF/sam0/drivers/wdt</Value>
       <Value>../src/ASF/sam0/drivers/tc</Value>
-      <Value>../src/ASF/sam0/drivers/tc/tc_sam_d_r_h</Value>
     </ListValues>
   </armgcc.compiler.directories.IncludePaths>
   <armgcc.compiler.optimization.level>Optimize for size (-Os)</armgcc.compiler.optimization.level>
@@ -392,7 +390,6 @@
       <Value>../src/ASF/sam0/services/eeprom/emulator/main_array</Value>
       <Value>../src/ASF/sam0/drivers/wdt</Value>
       <Value>../src/ASF/sam0/drivers/tc</Value>
-      <Value>../src/ASF/sam0/drivers/tc/tc_sam_d_r_h</Value>
     </ListValues>
   </armgcc.assembler.general.IncludePaths>
   <armgcc.preprocessingassembler.general.AssemblerFlags>-DARM_MATH_CM0PLUS=true -DBOARD=USER_BOARD -DI2C_MASTER_CALLBACK_MODE=false -DSYSTICK_MODE -DEXTINT_CALLBACK_MODE=true -DUSART_CALLBACK_MODE=true -DWDT_CALLBACK_MODE=true -DTC_ASYNC=true</armgcc.preprocessingassembler.general.AssemblerFlags>
@@ -434,7 +431,6 @@
       <Value>../src/ASF/sam0/services/eeprom/emulator/main_array</Value>
       <Value>../src/ASF/sam0/drivers/wdt</Value>
       <Value>../src/ASF/sam0/drivers/tc</Value>
-      <Value>../src/ASF/sam0/drivers/tc/tc_sam_d_r_h</Value>
     </ListValues>
   </armgcc.preprocessingassembler.general.IncludePaths>
 </ArmGcc>
@@ -499,7 +495,6 @@
       <Value>../src/ASF/sam0/services/eeprom/emulator/main_array</Value>
       <Value>../src/ASF/sam0/drivers/wdt</Value>
       <Value>../src/ASF/sam0/drivers/tc</Value>
-      <Value>../src/ASF/sam0/drivers/tc/tc_sam_d_r_h</Value>
     </ListValues>
   </armgcc.compiler.directories.IncludePaths>
   <armgcc.compiler.optimization.level>Optimize for size (-Os)</armgcc.compiler.optimization.level>
@@ -561,7 +556,6 @@
       <Value>../src/ASF/sam0/services/eeprom/emulator/main_array</Value>
       <Value>../src/ASF/sam0/drivers/wdt</Value>
       <Value>../src/ASF/sam0/drivers/tc</Value>
-      <Value>../src/ASF/sam0/drivers/tc/tc_sam_d_r_h</Value>
     </ListValues>
   </armgcc.assembler.general.IncludePaths>
   <armgcc.assembler.debugging.DebugLevel>Default (-g)</armgcc.assembler.debugging.DebugLevel>
@@ -604,7 +598,6 @@
       <Value>../src/ASF/sam0/services/eeprom/emulator/main_array</Value>
       <Value>../src/ASF/sam0/drivers/wdt</Value>
       <Value>../src/ASF/sam0/drivers/tc</Value>
-      <Value>../src/ASF/sam0/drivers/tc/tc_sam_d_r_h</Value>
     </ListValues>
   </armgcc.preprocessingassembler.general.IncludePaths>
   <armgcc.preprocessingassembler.debugging.DebugLevel>Default (-Wa,-g)</armgcc.preprocessingassembler.debugging.DebugLevel>
@@ -657,7 +650,6 @@
     <Folder Include="src\ASF\sam0\drivers\system\reset\" />
     <Folder Include="src\ASF\sam0\drivers\system\reset\reset_sam_d_r_h\" />
     <Folder Include="src\ASF\sam0\drivers\tc\" />
-    <Folder Include="src\ASF\sam0\drivers\tc\tc_sam_d_r_h\" />
     <Folder Include="src\ASF\sam0\drivers\wdt\" />
     <Folder Include="src\ASF\sam0\drivers\wdt\quick_start\" />
     <Folder Include="src\ASF\sam0\drivers\wdt\quick_start_callback\" />
@@ -700,9 +692,6 @@
     <None Include="src\ASF\sam0\drivers\tc\tc_interrupt.h">
       <SubType>compile</SubType>
     </None>
-    <Compile Include="src\ASF\sam0\drivers\tc\tc_sam_d_r_h\tc.c">
-      <SubType>compile</SubType>
-    </Compile>
     <Compile Include="src\bms_wdt.c">
       <SubType>compile</SubType>
     </Compile>
