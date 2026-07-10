@@ -49,9 +49,7 @@ void serial_debug_init() {
 	usart_enable(&debug_usart);
 	
 	//Initial debug blurb
-	serial_debug_send_message("Dyson V10 BMS Aftermarket firmware init\r\n");
-	//Need to pause 250mS before cell voltages are available from the BQ7693
-	delay_ms(250);
+	serial_debug_send_message("Dyson V10 BMS Aftermarket firmware v" FIRMWARE_VERSION_STRING "\r\n");
 	serial_debug_send_cell_voltages();
 #endif
 
@@ -62,7 +60,7 @@ void serial_debug_send_message(char *msg) {
 #ifdef SERIAL_DEBUG
 	int result = usart_write_buffer_wait(&debug_usart, msg, strlen(msg));
 #else
-	return 0;
+	return;
 #endif
 
 }

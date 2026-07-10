@@ -12,6 +12,7 @@
 #define WDT_TIMER_MS                  100
 
 static sw_timer wdt_timer = 0;
+static bool wdt_initialized = false;
 
 static void wdt_early_warning_callback(void);
 
@@ -27,6 +28,7 @@ void wdt_init(void) {
   wdt_enable_callback(WDT_CALLBACK_EARLY_WARNING);
 
   sw_timer_start(&wdt_timer);
+  wdt_initialized = true;
 }
 
 
@@ -36,6 +38,7 @@ void wdt_deinit(void) {
     wdt_get_config_defaults(&config_wdt);
     config_wdt.enable = false;
     wdt_set_config(&config_wdt);
+    wdt_initialized = false;
 }
 
 void wdt_mainloop(void) {
@@ -48,7 +51,10 @@ void wdt_mainloop(void) {
 static void wdt_early_warning_callback(void) {
   bq7693_disable_charge();
   bq7693_disable_discharge();
+  port_pin_set_output_level(LED_ERR, true);
+}
 
-  leds_blink_error_led(10);
+bool wdt_is_initialized(void) {
+  return wdt_initialized;
 }
 

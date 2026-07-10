@@ -15,5 +15,6 @@
 extern void wdt_init(void);
 extern void wdt_deinit(void);
 extern void wdt_mainloop(void);
+extern bool wdt_is_initialized(void);
 
 #endif /* BMS_WDT_H_ */

@@ -39,7 +39,7 @@ void bms_handle_charger_unplugged(void);
 
 
 bool bms_is_pack_full(void);
-bool bms_is_safe_to_discharge(void);
+bool bms_is_safe_to_discharge(bool check_undertemp);
 bool bms_is_safe_to_charge(void);
 
 enum BMS_STATE {

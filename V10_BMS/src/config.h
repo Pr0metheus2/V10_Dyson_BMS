@@ -35,9 +35,9 @@
 //Some packs have Molicell INR18650P26a - datasheet https://www.molicel.com/wp-content/uploads/INR18650P26A-V2-80087.pdf
 #define CELL_LOWEST_DISCHARGE_VOLTAGE 2500	//mV - wont allow pack to discharge if any cells lower than this
 #define CELL_LOWEST_CHARGE_VOLTAGE 2000		//mV - won't try to charge the pack if any cells lower than this
-#define CELL_FULL_CHARGE_VOLTAGE 4200		//mV - fully charged cell voltage.
+#define CELL_FULL_CHARGE_VOLTAGE 4150		//mV - fully charged cell voltage.
 
-#define CELL_OVERVOLTAGE_TRIP  4250		//BMS will trip out at this voltage - NB DO NOT set outside of 3150mV - 4700mV or it wont' work! 
+#define CELL_OVERVOLTAGE_TRIP  4200		//BMS will trip out at this voltage - NB DO NOT set outside of 3150mV - 4700mV or it wont' work! 
 #define CELL_UNDERVOLTAGE_TRIP 2450		//BMS will trip out at this voltage - NB DO NOT set outside of 1700mv - 3000mV or it wont' work!
 
 //18650 cell temperature limits from Molicell datasheet.
@@ -45,10 +45,12 @@
 #define MIN_PACK_CHARGE_TEMP 0				//'C - if less than this, no charge.
 #define MIN_PACK_DISCHARGE_TEMP -40			//'C - if less than this, no discharge
 
-#define IDLE_TIME 60 * 15 // Idle time in seconds. Pack will go into SHIP/deep sleep mode if nothing happens in this duration
+#define IDLE_TIME 60 // Idle time in seconds. Pack will go into SHIP/deep sleep mode if nothing happens in this duration
 
 #define FULL_CHARGE_PAUSE_COUNT 10 //Once a cell reaches max charge volts, pause for 30 seconds and retry, this many times.
 
-#define SERIAL_DEBUG 1 //Serial debug via the spare USART on the programming pins header
+// Firmware version is injected from CMake so build output names stay in sync.
+
+// #define SERIAL_DEBUG 1 // Uncomment to enable serial debug via the spare USART on the programming pins header
 
 #endif /* CONFIG_H_ */

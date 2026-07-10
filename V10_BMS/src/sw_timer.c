@@ -101,10 +101,15 @@ sw_timer sw_timer_get_elapsed_time(sw_timer * sw_timer_ptr) {
 }
 
 void sw_timer_delay_ms(uint32_t sw_timer_delay_ms) {
-  sw_timer_start((sw_timer *)&delay_timer);
-  do {
-    SW_TIMER_SERVICES();
-  } while(false == sw_timer_is_elapsed((sw_timer *)&delay_timer, sw_timer_delay_ms));
+  if (wdt_is_initialized()) {
+    sw_timer_start((sw_timer *)&delay_timer);
+    do {
+      SW_TIMER_SERVICES();
+    } while(false == sw_timer_is_elapsed((sw_timer *)&delay_timer, sw_timer_delay_ms));
+  }
+  else {
+    delay_ms(sw_timer_delay_ms);
+  }
 }
 
 static void tc_callback_sw_timer(struct tc_module *const module_inst) {

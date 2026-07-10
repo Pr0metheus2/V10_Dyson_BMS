@@ -10,6 +10,9 @@
 
 volatile struct eeprom_data eeprom_data;
 
+#define EEPROM_BOOT_FLAG_OFFSET ((size_t)sizeof(eeprom_data))
+#define EEPROM_BOOT_FLAG_VALUE   0xA5
+
 int eeprom_init() {
 	enum status_code error_code = eeprom_emulator_init();
 	if (error_code == STATUS_ERR_NO_MEMORY) {
@@ -49,6 +52,42 @@ int eeprom_write() {
 	eeprom_emulator_write_page(0, buffer);	
 	eeprom_emulator_commit_page_buffer();
 	return 0;
+}
+
+bool eeprom_should_show_startup_sequence(void) {
+	uint8_t buffer[EEPROM_PAGE_SIZE];
+	eeprom_emulator_read_page(0, buffer);
+
+	if (buffer[EEPROM_BOOT_FLAG_OFFSET] == EEPROM_BOOT_FLAG_VALUE) {
+		buffer[EEPROM_BOOT_FLAG_OFFSET] = 0xFF;
+		eeprom_emulator_write_page(0, buffer);
+		eeprom_emulator_commit_page_buffer();
+		return false;
+	}
+
+	return true;
+}
+
+bool eeprom_consume_sleep_wakeup_flag(void) {
+	uint8_t buffer[EEPROM_PAGE_SIZE];
+	eeprom_emulator_read_page(0, buffer);
+
+	if (buffer[EEPROM_BOOT_FLAG_OFFSET] == EEPROM_BOOT_FLAG_VALUE) {
+		buffer[EEPROM_BOOT_FLAG_OFFSET] = 0xFF;
+		eeprom_emulator_write_page(0, buffer);
+		eeprom_emulator_commit_page_buffer();
+		return true;
+	}
+
+	return false;
+}
+
+void eeprom_mark_sleep_wakeup(void) {
+	uint8_t buffer[EEPROM_PAGE_SIZE];
+	eeprom_emulator_read_page(0, buffer);
+	buffer[EEPROM_BOOT_FLAG_OFFSET] = EEPROM_BOOT_FLAG_VALUE;
+	eeprom_emulator_write_page(0, buffer);
+	eeprom_emulator_commit_page_buffer();
 }
 
 int eeprom_fuses_set() {
