@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.20)
 
 project(samd20_firmware C ASM)
 
+set(FIRMWARE_VERSION_MAJOR 1)
+set(FIRMWARE_VERSION_MINOR 4)
+set(FIRMWARE_VERSION_STRING "${FIRMWARE_VERSION_MAJOR}.${FIRMWARE_VERSION_MINOR}")
+set(ELF_BASENAME "V10_BMS_${FIRMWARE_VERSION_STRING}")
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # -----------------------------------------------------------------------------
 # MCU / CPU
 # -----------------------------------------------------------------------------
@@ -58,6 +65,7 @@ set(COMMON_C_FLAGS
     -Wunreachable-code
     -Wcast-align
     --param max-inline-insns-single=500
+    -Wno-overflow
 )
 
 add_compile_options(${COMMON_C_FLAGS})
@@ -75,6 +83,11 @@ add_compile_definitions(
     ADC_CALLBACK_MODE=false
     EXTINT_CALLBACK_MODE=true
     USART_CALLBACK_MODE=true
+    TC_ASYNC=true
+    WDT_CALLBACK_MODE=true
+    FIRMWARE_VERSION_MAJOR=${FIRMWARE_VERSION_MAJOR}
+    FIRMWARE_VERSION_MINOR=${FIRMWARE_VERSION_MINOR}
+    FIRMWARE_VERSION_STRING="${FIRMWARE_VERSION_STRING}"
 )
 
 # -----------------------------------------------------------------------------
@@ -87,7 +100,7 @@ set(LINKER_SCRIPT
 add_link_options(
     ${MCU_FLAGS}
     -Wl,--gc-sections
-    -Wl,-Map=${PROJECT_NAME}.map
+    -Wl,-Map=${ELF_BASENAME}.map
     -T${LINKER_SCRIPT}
     --specs=nano.specs
     --specs=nosys.specs
@@ -131,6 +144,8 @@ include_directories(
     src/ASF/sam0/drivers/adc
     src/ASF/sam0/drivers/adc/adc_sam_d_r_h
     src/ASF/sam0/drivers/nvm
+    src/ASF/sam0/drivers/tc
+    src/ASF/sam0/drivers/wdt
     src/ASF/sam0/services/eeprom/emulator/main_array
     src/ASF/thirdparty/CMSIS/Include
     src/ASF/thirdparty/CMSIS/Lib/GCC
@@ -142,37 +157,48 @@ include_directories(
 file(GLOB_RECURSE SOURCES src/*.c)
 
 # Define the ELF target
-add_executable(${PROJECT_NAME}.elf ${SOURCES})
+add_executable(${ELF_BASENAME}.elf ${SOURCES})
 
 # -----------------------------------------------------------------------------
 # Size + HEX generation
 # -----------------------------------------------------------------------------
-add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
-    COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${PROJECT_NAME}.elf>
+add_custom_command(TARGET ${ELF_BASENAME}.elf POST_BUILD
+    COMMAND ${CMAKE_SIZE} $<TARGET_FILE:${ELF_BASENAME}.elf>
 )
 
-add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
+add_custom_command(TARGET ${ELF_BASENAME}.elf POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O ihex
-            $<TARGET_FILE:${PROJECT_NAME}.elf>
-            ${PROJECT_NAME}.hex
+            $<TARGET_FILE:${ELF_BASENAME}.elf>
+            ${ELF_BASENAME}.hex
 )
 
 # -----------------------------------------------------------------------------
 # Link libraries
 # -----------------------------------------------------------------------------
-target_link_libraries(${PROJECT_NAME}.elf m)
+target_link_libraries(${ELF_BASENAME}.elf m)
 
 # -----------------------------------------------------------------------------
 # OpenOCD flash target
 # -----------------------------------------------------------------------------
 set(OPENOCD_CFG ${CMAKE_SOURCE_DIR}/openocd_samd20.cfg)
+# set(OPENOCD_CFG ${CMAKE_SOURCE_DIR}/openocd_ice_samd20.cfg)
 
 add_custom_target(flash
     COMMAND openocd
         -f ${OPENOCD_CFG}
-        -c "program $<TARGET_FILE:${PROJECT_NAME}.elf> verify reset exit"
-    DEPENDS ${PROJECT_NAME}.elf
+        -c "program $<TARGET_FILE:${ELF_BASENAME}.elf> verify reset exit"
+    DEPENDS ${ELF_BASENAME}.elf
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Flashing $<TARGET_FILE:${PROJECT_NAME}.elf> using OpenOCD"
+    COMMENT "Flashing $<TARGET_FILE:${ELF_BASENAME}.elf> using OpenOCD"
 )
 
+# This will unlock (and fully erase) a Dyson pack with the firmware protection enabled
+# It will need to be programmed after this
+add_custom_target(unlock
+    COMMAND openocd
+        -f ${OPENOCD_CFG}
+        -c "\"init; at91samd.cpu mwb 0x41002100 0x10; sleep 500; reset; halt; exit\""
+    DEPENDS ${ELF_BASENAME}.elf
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Flashing $<TARGET_FILE:${ELF_BASENAME}.elf> using OpenOCD"
+)

@@ -25,12 +25,16 @@
 volatile struct eeprom_data {
 	int32_t total_pack_capacity; //micro-amp-hours
 	int32_t current_charge_level;	//micro-amp-hours
+	uint16_t lowest_cell_voltage; //mV, saved before sleep for the wake indicator
 };
 
 int eeprom_init(void);
 
 int eeprom_read();
 int eeprom_write();
+bool eeprom_should_show_startup_sequence(void);
+bool eeprom_consume_sleep_wakeup_flag(void);
+void eeprom_mark_sleep_wakeup(void);
 
 int eeprom_fuses_set(void);
 

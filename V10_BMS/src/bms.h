@@ -19,6 +19,8 @@
 #include "eeprom_handler.h"
 #include "serial_debug.h"
 #include "config.h"
+#include "sw_timer.h"
+#include "bms_wdt.h"
 
 void pins_init(void);
 
@@ -37,7 +39,7 @@ void bms_handle_charger_unplugged(void);
 
 
 bool bms_is_pack_full(void);
-bool bms_is_safe_to_discharge(void);
+bool bms_is_safe_to_discharge(bool check_undertemp);
 bool bms_is_safe_to_charge(void);
 
 enum BMS_STATE {

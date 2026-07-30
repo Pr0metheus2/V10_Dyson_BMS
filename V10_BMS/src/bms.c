@@ -14,6 +14,27 @@ enum BMS_STATE bms_state = BMS_IDLE;
 //If a fault occurs, it'll be lodged here.
 enum BMS_ERROR_CODE bms_error = BMS_ERR_NONE;
 
+// Wake-from-sleep needs a short grace window so the first post-sleep BQ reads
+// do not trip false fault flashes before discharge is fully settled.
+static bool bms_woke_from_sleep = false;
+static bool bms_wake_skip_undertemp_once = false;
+static bool bms_wake_skip_charge_undertemp_once = false;
+static bool bms_wake_skip_charge_cell_fail_once = false;
+static bool bms_wake_skip_flat_fault_once = false;
+// Retained for testing if post-wake LED refresh suppression is re-enabled.
+static uint8_t bms_wake_discharge_led_skip_count = 0;
+static uint8_t bms_wake_running_grace_loops = 0;
+
+// #define BMS_WAKE_SKIP_DISCHARGE_LED_DISPLAYS 3
+
+// Re-check undertemp periodically during discharge so real thermistor faults
+// still get caught without paying the cost on every 60 ms loop.
+#define DISCHARGE_UNDERTEMP_RECHECK_LOOPS 17
+
+// BQ76930 datasheet note: after leaving SHIP/NORMAL wake, allow 400 ms before
+// reading initial cell voltages.
+#define BQ76930_WAKE_SETTLE_MS 400
+
 #ifdef SERIAL_DEBUG
 char *bms_state_names[] = {
 	"BMS_IDLE",
@@ -29,6 +50,59 @@ char *bms_state_names[] = {
 #endif
 
 extern volatile struct eeprom_data eeprom_data;
+
+static uint16_t bms_get_lowest_cell_voltage(void) {
+	uint16_t *cell_voltages = bq7693_get_cell_voltages();
+	uint16_t lowest_cell_voltage = cell_voltages[0];
+
+	for (int i = 1; i < 7; ++i) {
+		if (cell_voltages[i] < lowest_cell_voltage) {
+			lowest_cell_voltage = cell_voltages[i];
+		}
+	}
+
+	return lowest_cell_voltage;
+}
+
+static void bms_prepare_wake_from_sleep(void) {
+	// Wake from sleep should restore output immediately. The BQ76930 is then
+	// given settle time in the discharge loop before safety reads are trusted.
+	bms_wake_skip_undertemp_once = true;
+	bms_wake_skip_charge_undertemp_once = true;
+	bms_wake_skip_charge_cell_fail_once = true;
+	bms_wake_skip_flat_fault_once = true;
+	// bms_wake_discharge_led_skip_count = BMS_WAKE_SKIP_DISCHARGE_LED_DISPLAYS;
+	// About 400 ms total settle is handled after discharge is enabled.
+	bms_wake_running_grace_loops = 7;
+}
+
+static void bms_prepare_wake_for_charge(void) {
+	//Wake from sleep can leave the first charge-side readings stale.
+	//BQ76930 requires 400 ms before initial cell-voltage reads after wake.
+	sw_timer_delay_ms(BQ76930_WAKE_SETTLE_MS);
+	(void)bq7693_get_cell_voltages();
+	(void)bq7693_read_temperature();
+	bms_wake_skip_charge_undertemp_once = true;
+}
+
+static bool bms_consume_wake_running_grace(void) {
+	if (bms_wake_running_grace_loops == 0) {
+		return false;
+	}
+
+	--bms_wake_running_grace_loops;
+	return true;
+}
+
+static bool bms_should_check_undertemp_now(uint8_t *undertemp_check_loops) {
+	if (*undertemp_check_loops == 0) {
+		*undertemp_check_loops = DISCHARGE_UNDERTEMP_RECHECK_LOOPS;
+		return true;
+	}
+
+	--(*undertemp_check_loops);
+	return false;
+}
 
 void pins_init() {
 	//Set up the output charge pin
@@ -113,11 +187,18 @@ void bms_init() {
 	system_init();
 	//Initialise the delay system
 	delay_init();
+
+	//Initialise the timer system
+	sw_timer_init();
+
 	//Set up the pins
 	pins_init();
 	
 	//BQ7693 init
 	bq7693_init();
+
+	//Keep a short post-init settle window before the first cell-voltage reads.
+	delay_ms(100);
 	
 #ifdef SERIAL_DEBUG
 	serial_debug_init();
@@ -128,26 +209,40 @@ void bms_init() {
 	//Init eeprom emulator
 	eeprom_init();
 	eeprom_read();
+	bms_woke_from_sleep = eeprom_consume_sleep_wakeup_flag();
 	
 	//Initialise the USART we need to talk to the vacuum cleaner
 	serial_init();	
 	
-	//Do pretty welcome sequence
-	leds_sequence();
+	//Only show the welcome sequence on true power-up or reset, not on a wake from sleep.
+	if (!bms_woke_from_sleep && eeprom_should_show_startup_sequence()) {
+		leds_sequence();
+	}
 	
 	//Enable interrupts
 	interrupts_init();
 
+	//Enable watchdog
+	wdt_init();
 }
 	
-bool bms_is_safe_to_discharge() {
+bool bms_is_safe_to_discharge(bool check_undertemp) {
 	//Clear error status.
 	bms_error = BMS_ERR_NONE;
+	bool skip_wake_flat_fault = false;
+
+	if (bms_wake_skip_flat_fault_once) {
+		bms_wake_skip_flat_fault_once = false;
+		skip_wake_flat_fault = true;
+	}
 	
 	uint16_t *cell_voltages = bq7693_get_cell_voltages();
 	//Check any cells undervolt.
 	for (int i=0; i<7;++i) {
 		if (cell_voltages[i] < CELL_LOWEST_DISCHARGE_VOLTAGE) {
+			if (skip_wake_flat_fault) {
+				continue;
+			}
 			bms_error = BMS_ERR_PACK_DISCHARGED;
 			
 #ifdef SERIAL_DEBUG
@@ -161,7 +256,7 @@ bool bms_is_safe_to_discharge() {
 #endif		
 		}
 	}
-	//Check pack temperature remains in acceptable range	
+	//Check pack temperature remains in acceptable range.
 	int temp = bq7693_read_temperature();
 	if (temp/10  > MAX_PACK_TEMPERATURE) {
 		bms_error = BMS_ERR_PACK_OVERTEMP;
@@ -173,12 +268,17 @@ bool bms_is_safe_to_discharge() {
 
 	}
 	else if (temp/10 < MIN_PACK_DISCHARGE_TEMP) {
-		bms_error = BMS_ERR_PACK_UNDERTEMP;
+		if (bms_wake_skip_undertemp_once) {
+			bms_wake_skip_undertemp_once = false;
+		}
+		else if (check_undertemp) {
+			bms_error = BMS_ERR_PACK_UNDERTEMP;
 
 #ifdef SERIAL_DEBUG
-		sprintf(debug_msg_buffer, "%s: Pack undertemp %d 'C, min %d\r\n", __FUNCTION__ , temp/10, MIN_PACK_DISCHARGE_TEMP);
-		serial_debug_send_message(debug_msg_buffer);
+			sprintf(debug_msg_buffer, "%s: Pack undertemp %d 'C, min %d\r\n",__FUNCTION__ , temp/10, MIN_PACK_DISCHARGE_TEMP);
+			serial_debug_send_message(debug_msg_buffer);
 #endif
+		}
 	}
 	
 	//Check sys_stat	
@@ -200,20 +300,24 @@ bool bms_is_safe_to_discharge() {
 		bq7693_write_register(SYS_STAT, 0x02);
 
 #ifdef SERIAL_DEBUG
-		sprintf(debug_msg_buffer, "%s: BMS IC Short Circuit Trip\r\n", __FUNCTION__);
+		sprintf(debug_msg_buffer, "%s: Short Circuit Trip\r\n", __FUNCTION__);
 		serial_debug_send_message(debug_msg_buffer);
 #endif	
 
 	}
 	else if (sys_stat & 0x08) {
-		bms_error = BMS_ERR_UNDERVOLTAGE;
-		bq7693_write_register(SYS_STAT, 0x08);
+		if (skip_wake_flat_fault) {
+			bq7693_write_register(SYS_STAT, 0x08);
+		}
+		else {
+			bms_error = BMS_ERR_UNDERVOLTAGE;
+			bq7693_write_register(SYS_STAT, 0x08);
 
 #ifdef SERIAL_DEBUG
-	sprintf(debug_msg_buffer, "%s: BMS IC Undervoltage Trip\r\n", __FUNCTION__);
-	serial_debug_send_message(debug_msg_buffer);
+			sprintf(debug_msg_buffer, "%s: Undervoltage Trip\r\n", __FUNCTION__);
+			serial_debug_send_message(debug_msg_buffer);
 #endif
-
+		}
 	}	
 
 	if (bms_error == BMS_ERR_NONE) {
@@ -232,10 +336,14 @@ bool bms_is_safe_to_charge() {
 	//Check no cells are so flat they cannot be charged.
 	for (int i=0; i<7;++i) {
 		if ( cell_voltages[i] < CELL_LOWEST_CHARGE_VOLTAGE ) {
+			if (bms_wake_skip_charge_cell_fail_once) {
+				bms_wake_skip_charge_cell_fail_once = false;
+				continue;
+			}
 			bms_error = BMS_ERR_CELL_FAIL;	
 
 #ifdef SERIAL_DEBUG
-		sprintf(debug_msg_buffer, "%s: Cell %d below min charge voltage %d, min %d\r\n", __FUNCTION__, i, cell_voltages[i], CELL_LOWEST_CHARGE_VOLTAGE);
+		sprintf(debug_msg_buffer, "%s: Cell %d @ %dV (min %dV)\r\n", __FUNCTION__, i, cell_voltages[i], CELL_LOWEST_CHARGE_VOLTAGE);
 		serial_debug_send_message(debug_msg_buffer);
 #endif
 
@@ -248,7 +356,12 @@ bool bms_is_safe_to_charge() {
 		bms_error = BMS_ERR_PACK_OVERTEMP;
 	}
 	else if (temp/10 < MIN_PACK_CHARGE_TEMP) {
-		bms_error = BMS_ERR_PACK_UNDERTEMP;
+		if (bms_wake_skip_charge_undertemp_once) {
+			bms_wake_skip_charge_undertemp_once = false;
+		}
+		else {
+			bms_error = BMS_ERR_PACK_UNDERTEMP;
+		}
 	}
 	
 	//Check sys_stat
@@ -300,7 +413,7 @@ void bms_handle_idle() {
 			bms_state = BMS_TRIGGER_PULLED;
 			return;
 		}
-		delay_ms(50);
+		sw_timer_delay_ms(50);
 	}	
 	//Reached the end of our wait loop, with nobody pulling the trigger, or plugging in charger.
 	//Transit to sleep state
@@ -308,8 +421,21 @@ void bms_handle_idle() {
 }
 
 void bms_handle_trigger_pulled() {
+	if (bms_woke_from_sleep) {
+		// Wake-up is handled by the discharge loop so output comes up first.
+		// Use the pre-sleep reading immediately; new BQ readings need time to settle.
+		if (eeprom_data.lowest_cell_voltage >= CELL_LOWEST_CHARGE_VOLTAGE &&
+			eeprom_data.lowest_cell_voltage <= CELL_OVERVOLTAGE_TRIP) {
+			leds_display_battery_voltage(eeprom_data.lowest_cell_voltage);
+		}
+		bms_prepare_wake_from_sleep();
+		bms_woke_from_sleep = false;
+		bms_state = BMS_DISCHARGING;
+		return;
+	}
+
 	//Check if it's safe to discharge or not.
-	if (bms_is_safe_to_discharge()) {
+	if (bms_is_safe_to_discharge(true)) {
 		//All go - unleash the power!
 		bms_state = BMS_DISCHARGING;
 	}
@@ -319,11 +445,10 @@ void bms_handle_trigger_pulled() {
 }
 
 void bms_handle_sleep() {
-	//Goodbye LED sequence
-	leds_sequence();
-	
-	//Store pack charge data to eeprom
+	// Store pack charge data and the last valid LED voltage before sleeping.
+	eeprom_data.lowest_cell_voltage = bms_get_lowest_cell_voltage();
 	eeprom_write();
+	eeprom_mark_sleep_wakeup();
 	
 	bq7693_enter_sleep_mode();
 	
@@ -336,16 +461,14 @@ void bms_handle_discharging() {
 #ifdef SERIAL_DEBUG
 	serial_debug_send_message("Starting discharge\r\n");
 #endif
-	//Show the battery voltage on the LEDs.
-	leds_display_battery_soc((eeprom_data.current_charge_level*100) / eeprom_data.total_pack_capacity);
-	
-	if (bms_is_safe_to_discharge()) {
-		//Sanity check, hopefully already checked prior to here!
-		bq7693_enable_discharge();
-		//Reset the UART message counter;
-		serial_reset_message_counter();
-		//Brief pause to allow vac to wake up before we start sending serial data at it.
-	}
+	//Enable the discharge path first so the output is available before we spend
+	//time refreshing the indicator LEDs.
+	bq7693_enable_discharge();
+	//Reset the UART message counter;
+	serial_reset_message_counter();
+	// Skip the first wake loops so the BQ76930 can settle after output enable
+	// before the first discharge safety reads are trusted.
+	uint8_t undertemp_check_loops = DISCHARGE_UNDERTEMP_RECHECK_LOOPS;
 	
 	while (1) {
 		
@@ -354,6 +477,13 @@ void bms_handle_discharging() {
 		bq7693_read_temperature()/10);
 		serial_debug_send_message(debug_msg_buffer);
 #endif
+		if (port_pin_get_input_level(CHARGER_CONNECTED_PIN)) {
+			//Charger insertion must override discharge immediately.
+			bq7693_disable_discharge();
+			leds_off();
+			bms_state = BMS_CHARGER_CONNECTED;
+			return;
+		}
 		if (!port_pin_get_input_level(TRIGGER_PRESSED_PIN)) {
 			//Trigger released.
 			bq7693_disable_discharge();
@@ -362,20 +492,34 @@ void bms_handle_discharging() {
 			bms_state = BMS_IDLE;
 			return;
 		}
-		if (!bms_is_safe_to_discharge()) {
+		if (bms_consume_wake_running_grace()) {
+			//Deliberately skip the first post-wake safety checks.
+		}
+		else
+		{
+		bool check_undertemp_now = bms_should_check_undertemp_now(&undertemp_check_loops);
+
+		if (!bms_is_safe_to_discharge(check_undertemp_now)) {
 			//A fault has occurred.
 			bq7693_disable_discharge();
 			bms_state = BMS_FAULT;
 			return;
 		}
+		}
 		
-		//No errors, and trigger pressed, so we continue to discharge.
-		//Show the battery voltage on the LEDs.
-		leds_display_battery_soc((eeprom_data.current_charge_level*100) / eeprom_data.total_pack_capacity);
+		// Keep the EEPROM-derived indicator visible until BQ wake readings settle.
+		if (bms_wake_running_grace_loops == 0) {
+			if (bms_wake_discharge_led_skip_count > 0) {
+				--bms_wake_discharge_led_skip_count;
+			}
+			else {
+				leds_display_battery_voltage(bms_get_lowest_cell_voltage());
+			}
+		}
 		
 		//Send the USART traffic we need to supply to keep the cleaner running
 		serial_send_next_message();
-		delay_ms(60);
+		sw_timer_delay_ms(60);
 	}
 }
 
@@ -400,7 +544,7 @@ void bms_handle_fault() {
 			for (int i=0; i<bms_error; ++i) {
 				leds_blink_error_led(500);
 			}
-			delay_ms(2000);
+			sw_timer_delay_ms(2000);
 		}
 	} 
 	while (port_pin_get_input_level(TRIGGER_PRESSED_PIN) || port_pin_get_input_level(CHARGER_CONNECTED_PIN));
@@ -410,6 +554,11 @@ void bms_handle_fault() {
 }
 
 void bms_handle_charger_connected() {
+	if (bms_woke_from_sleep) {
+		bms_prepare_wake_for_charge();
+		bms_woke_from_sleep = false;
+	}
+
 	if (bms_is_pack_full()) {
 		//If the pack is full, transit to idle.
 		bms_state = BMS_IDLE;
@@ -423,15 +572,17 @@ void bms_handle_charger_connected() {
 }
 
 void bms_handle_charger_connected_not_charging() {
+	leds_display_battery_voltage(CELL_FULL_CHARGE_VOLTAGE);
 	//Wait up to 30 seconds to see if someone unplugs the charger.
 	//If so, to idle.
 	//If not, to sleep.
 	for (int i=0; i<30; ++i) {
 		if (!port_pin_get_input_level(CHARGER_CONNECTED_PIN)) {
+			leds_off();
 			bms_state = BMS_IDLE;
 			return;
 		}		
-		delay_ms(1000);
+		sw_timer_delay_ms(1000);
 	}
 	//Sleep then!
 	bms_state = BMS_SLEEP;
@@ -452,7 +603,7 @@ void bms_handle_charging() {
 	while (1) {
 		//Charging now in progress.		
 		//Show flashing LED segment to indicate we are charging.
-		leds_flash_charging_segment((eeprom_data.current_charge_level*100) / eeprom_data.total_pack_capacity);
+	leds_flash_charging_voltage_segment(bms_get_lowest_cell_voltage());
 	
 #ifdef SERIAL_DEBUG
 		sprintf(debug_msg_buffer,"Charging at %d mA, %d mAH, capacity %d mAH, Temp %d'C\r\n", currentmA, eeprom_data.current_charge_level/1000, eeprom_data.total_pack_capacity/1000, 
@@ -464,6 +615,7 @@ void bms_handle_charging() {
 			port_pin_set_output_level(ENABLE_CHARGE_PIN, false);
 			bq7693_disable_charge();
 
+			leds_pwm_disable();
 			leds_off();
 			bms_state = BMS_FAULT;
 			return;
@@ -475,6 +627,7 @@ void bms_handle_charging() {
 			port_pin_set_output_level(ENABLE_CHARGE_PIN, false);
 			bq7693_disable_charge();
 
+			leds_pwm_disable();
 			leds_off();
 			bms_state = BMS_CHARGER_UNPLUGGED;
 			return;
@@ -493,11 +646,12 @@ void bms_handle_charging() {
 			//Delay for 30 seconds, then go and try again.	
 			for (int i=0; i<30; ++i) {
 				//This function takes a second.
-				leds_flash_charging_segment((eeprom_data.current_charge_level*100) / eeprom_data.total_pack_capacity);
+				leds_flash_charging_voltage_segment(bms_get_lowest_cell_voltage());
 				//Check the charger hasn't been unplugged while we're waiting
 				//If it has, abandon the charge process and return to main loop
 				if (!port_pin_get_input_level(CHARGER_CONNECTED_PIN)) {
 					//Charger's been unplugged.
+					leds_pwm_disable();
 					leds_off();
 					bms_state = BMS_CHARGER_UNPLUGGED;
 					return;
@@ -515,7 +669,8 @@ void bms_handle_charging() {
 			port_pin_set_output_level(ENABLE_CHARGE_PIN, false);
 			bq7693_disable_charge();
 			
-			leds_off();
+			leds_pwm_disable();
+			leds_display_battery_voltage(CELL_FULL_CHARGE_VOLTAGE);
 
 			bms_state = BMS_CHARGER_CONNECTED_NOT_CHARGING;
 
@@ -534,27 +689,10 @@ void bms_handle_charging() {
 }
 
 void bms_handle_charger_unplugged() {
-	//Do a little flash to show how out of sync the pack is, then go to idle.
-	uint16_t *cell_voltages = bq7693_get_cell_voltages();
-		
-	uint8_t highest_cell = 0;
-	uint8_t lowest_cell = 0;
-		
-	for (int i=0; i<7;++i) {
-		if (cell_voltages[i] > cell_voltages[highest_cell]) {
-			highest_cell = i;
-		}
-		if (cell_voltages[i] < cell_voltages[lowest_cell]) {
-			lowest_cell = i;
-		}
-	}
-	
-	uint16_t spread = cell_voltages[highest_cell] - cell_voltages[lowest_cell];
-	
-	//Flash the error led for 100ms for each 50mV the pack is out of balance
-	for (int i=0; i<round(spread/50); ++i) {
-		leds_blink_error_led(100);	
-	}
+	//Show the startup sequence when the charger is removed.
+	leds_pwm_disable();
+	leds_off();
+	leds_sequence();
 
 #ifdef SERIAL_DEBUG
 	serial_debug_send_message("Charger unplugged\r\n");
