@@ -1,3 +1,5 @@
+This is a fork from https://github.com/davidmpye/V10_Dyson_BMS
+
 # V10_Dyson_BMS
 
 A written-from-scratch unofficial firmware for Dyson V10 Battery Management Systems
