@@ -9,4 +9,4 @@
 *.lss
 *.map
 *.srec
-build_c*
+build_*
