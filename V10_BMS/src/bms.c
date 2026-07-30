@@ -21,12 +21,11 @@ static bool bms_wake_skip_undertemp_once = false;
 static bool bms_wake_skip_charge_undertemp_once = false;
 static bool bms_wake_skip_charge_cell_fail_once = false;
 static bool bms_wake_skip_flat_fault_once = false;
-// Skip the first two post-wake discharge LED renders so the display waits for
-// settled BQ76930 voltage readings instead of the stale wake sample.
+// Retained for testing if post-wake LED refresh suppression is re-enabled.
 static uint8_t bms_wake_discharge_led_skip_count = 0;
 static uint8_t bms_wake_running_grace_loops = 0;
 
-#define BMS_WAKE_SKIP_DISCHARGE_LED_DISPLAYS 3
+// #define BMS_WAKE_SKIP_DISCHARGE_LED_DISPLAYS 3
 
 // Re-check undertemp periodically during discharge so real thermistor faults
 // still get caught without paying the cost on every 60 ms loop.
@@ -72,7 +71,7 @@ static void bms_prepare_wake_from_sleep(void) {
 	bms_wake_skip_charge_undertemp_once = true;
 	bms_wake_skip_charge_cell_fail_once = true;
 	bms_wake_skip_flat_fault_once = true;
-	bms_wake_discharge_led_skip_count = BMS_WAKE_SKIP_DISCHARGE_LED_DISPLAYS;
+	// bms_wake_discharge_led_skip_count = BMS_WAKE_SKIP_DISCHARGE_LED_DISPLAYS;
 	// About 400 ms total settle is handled after discharge is enabled.
 	bms_wake_running_grace_loops = 7;
 }
@@ -424,6 +423,11 @@ void bms_handle_idle() {
 void bms_handle_trigger_pulled() {
 	if (bms_woke_from_sleep) {
 		// Wake-up is handled by the discharge loop so output comes up first.
+		// Use the pre-sleep reading immediately; new BQ readings need time to settle.
+		if (eeprom_data.lowest_cell_voltage >= CELL_LOWEST_CHARGE_VOLTAGE &&
+			eeprom_data.lowest_cell_voltage <= CELL_OVERVOLTAGE_TRIP) {
+			leds_display_battery_voltage(eeprom_data.lowest_cell_voltage);
+		}
 		bms_prepare_wake_from_sleep();
 		bms_woke_from_sleep = false;
 		bms_state = BMS_DISCHARGING;
@@ -441,7 +445,8 @@ void bms_handle_trigger_pulled() {
 }
 
 void bms_handle_sleep() {
-	//Store pack charge data to eeprom
+	// Store pack charge data and the last valid LED voltage before sleeping.
+	eeprom_data.lowest_cell_voltage = bms_get_lowest_cell_voltage();
 	eeprom_write();
 	eeprom_mark_sleep_wakeup();
 	
@@ -502,13 +507,14 @@ void bms_handle_discharging() {
 		}
 		}
 		
-		//No errors, and trigger pressed, so we continue to discharge.
-		if (bms_wake_discharge_led_skip_count > 0) {
-			--bms_wake_discharge_led_skip_count;
-		}
-		else {
-			//Show the battery voltage only after the first two wake samples.
-			leds_display_battery_voltage(bms_get_lowest_cell_voltage());
+		// Keep the EEPROM-derived indicator visible until BQ wake readings settle.
+		if (bms_wake_running_grace_loops == 0) {
+			if (bms_wake_discharge_led_skip_count > 0) {
+				--bms_wake_discharge_led_skip_count;
+			}
+			else {
+				leds_display_battery_voltage(bms_get_lowest_cell_voltage());
+			}
 		}
 		
 		//Send the USART traffic we need to supply to keep the cleaner running
