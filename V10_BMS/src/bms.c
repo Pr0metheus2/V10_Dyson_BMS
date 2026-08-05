@@ -193,23 +193,26 @@ void bms_init() {
 
 	//Set up the pins
 	pins_init();
-	
-	//BQ7693 init
-	bq7693_init();
 
-	//Keep a short post-init settle window before the first cell-voltage reads.
-	delay_ms(100);
-	
-#ifdef SERIAL_DEBUG
-	serial_debug_init();
-#endif
-	
-	//Init the LEDs
+	// EEPROM initialization can signal errors through LEDs, so initialize them first.
 	leds_init();
 	//Init eeprom emulator
 	eeprom_init();
 	eeprom_read();
 	bms_woke_from_sleep = eeprom_consume_sleep_wakeup_flag();
+	
+	//BQ7693 init
+	bq7693_init();
+
+	// A true power-up may check cell voltage immediately on trigger. A sleep wake
+	// keeps its existing post-output grace window, so it can enable output now.
+	if (!bms_woke_from_sleep) {
+		delay_ms(100);
+	}
+	
+#ifdef SERIAL_DEBUG
+	serial_debug_init();
+#endif
 	
 	//Initialise the USART we need to talk to the vacuum cleaner
 	serial_init();	
@@ -743,4 +746,3 @@ void bms_mainloop() {
 		}
 	}
 }
-
