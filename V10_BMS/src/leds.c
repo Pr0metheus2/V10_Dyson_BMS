@@ -22,6 +22,10 @@
 #define LED_BATTERY_SEGMENT_1_MV 3400
 #define LED_BATTERY_SEGMENT_2_MV 3800
 
+// Three segments represent thirds of the counted state of charge.
+#define LED_BATTERY_SEGMENT_1_SOC_PERCENT 34
+#define LED_BATTERY_SEGMENT_2_SOC_PERCENT 67
+
 #define NUM_LEDS 6
 uint16_t leds[] = { LED_FILTER, LED_BLOCKED, LED_ERR, LED_BAT_LO, LED_BAT_MED, LED_BAT_HI };
 
@@ -46,6 +50,7 @@ static void leds_pwm_set_duty(uint8_t duty);
 static uint8_t leds_pwm_duty_from_phase(uint8_t phase);
 static void leds_breathe_tick(uint16_t led_pin);
 static uint8_t leds_battery_segments_from_voltage(int cell_mv);
+static uint8_t leds_battery_segments_from_soc(uint8_t soc_percent);
 
 void leds_init(void) {
 	leds_gpio_init();
@@ -72,6 +77,16 @@ static uint8_t leds_battery_segments_from_voltage(int cell_mv) {
 		return 1;
 	}
 	if (cell_mv < LED_BATTERY_SEGMENT_2_MV) {
+		return 2;
+	}
+	return 3;
+}
+
+static uint8_t leds_battery_segments_from_soc(uint8_t soc_percent) {
+	if (soc_percent < LED_BATTERY_SEGMENT_1_SOC_PERCENT) {
+		return 1;
+	}
+	if (soc_percent < LED_BATTERY_SEGMENT_2_SOC_PERCENT) {
 		return 2;
 	}
 	return 3;
@@ -262,8 +277,29 @@ void leds_display_battery_voltage(int cell_mv) {
 	leds_battery_gpio_set(segments >= 1, segments >= 2, segments >= 3);
 }
 
+void leds_display_battery_soc(uint8_t soc_percent) {
+	leds_pwm_disable();
+	uint8_t segments = leds_battery_segments_from_soc(soc_percent);
+
+	leds_battery_gpio_set(segments >= 1, segments >= 2, segments >= 3);
+}
+
 void leds_flash_charging_voltage_segment(int cell_mv) {
 	uint8_t segments = leds_battery_segments_from_voltage(cell_mv);
+
+	if (segments <= 1) {
+		leds_breathe_tick(LED_BAT_LO);
+	}
+	else if (segments == 2) {
+		leds_breathe_tick(LED_BAT_MED);
+	}
+	else {
+		leds_breathe_tick(LED_BAT_HI);
+	}
+}
+
+void leds_flash_charging_soc_segment(uint8_t soc_percent) {
+	uint8_t segments = leds_battery_segments_from_soc(soc_percent);
 
 	if (segments <= 1) {
 		leds_breathe_tick(LED_BAT_LO);
