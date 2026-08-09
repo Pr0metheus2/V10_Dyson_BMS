@@ -30,8 +30,8 @@ int eeprom_init() {
 		eeprom_emulator_erase_memory();
 		error_code = eeprom_emulator_init();
 		//Write an initial guestimate of what a pack capacity might look like, we'll fine tune this by charging and discharging.
-		eeprom_data.total_pack_capacity = 2000000;  //in microAmpHours - equiv of 2000mAh.
-		eeprom_data.current_charge_level = 1000000; //half charged.
+		eeprom_data.total_pack_capacity = 2300000;  //in microAmpHours - equiv of 2300mAh.
+		eeprom_data.current_charge_level = 1250000; //half charged.
 		eeprom_data.lowest_cell_voltage = 0; //No valid cell-voltage sample yet.
 		eeprom_write();
 		eeprom_emulator_commit_page_buffer();

@@ -64,6 +64,26 @@ static uint16_t bms_get_lowest_cell_voltage(void) {
 	return lowest_cell_voltage;
 }
 
+static bool bms_get_charge_soc_percent(uint8_t *soc_percent) {
+	int32_t total_capacity = eeprom_data.total_pack_capacity;
+	int32_t charge_level = eeprom_data.current_charge_level;
+
+	if (total_capacity <= 0) {
+		return false;
+	}
+	if (charge_level <= 0) {
+		*soc_percent = 0;
+		return true;
+	}
+	if (charge_level >= total_capacity) {
+		*soc_percent = 100;
+		return true;
+	}
+
+	*soc_percent = (uint8_t)((charge_level * 100L) / total_capacity);
+	return true;
+}
+
 static void bms_prepare_wake_from_sleep(void) {
 	// Wake from sleep should restore output immediately. The BQ76930 is then
 	// given settle time in the discharge loop before safety reads are trusted.
@@ -516,7 +536,13 @@ void bms_handle_discharging() {
 				--bms_wake_discharge_led_skip_count;
 			}
 			else {
-				leds_display_battery_voltage(bms_get_lowest_cell_voltage());
+				uint8_t soc_percent;
+				if (bms_get_charge_soc_percent(&soc_percent)) {
+					leds_display_battery_soc(soc_percent);
+				}
+				else {
+					leds_display_battery_voltage(bms_get_lowest_cell_voltage());
+				}
 			}
 		}
 		
@@ -605,8 +631,14 @@ void bms_handle_charging() {
 	int charge_pause_counter = 0;
 	while (1) {
 		//Charging now in progress.		
-		//Show flashing LED segment to indicate we are charging.
-	leds_flash_charging_voltage_segment(bms_get_lowest_cell_voltage());
+		//Show the flashing segment selected by the counted state of charge.
+		uint8_t soc_percent;
+		if (bms_get_charge_soc_percent(&soc_percent)) {
+			leds_flash_charging_soc_segment(soc_percent);
+		}
+		else {
+			leds_flash_charging_voltage_segment(bms_get_lowest_cell_voltage());
+		}
 	
 #ifdef SERIAL_DEBUG
 		sprintf(debug_msg_buffer,"Charging at %d mA, %d mAH, capacity %d mAH, Temp %d'C\r\n", currentmA, eeprom_data.current_charge_level/1000, eeprom_data.total_pack_capacity/1000, 
@@ -649,7 +681,12 @@ void bms_handle_charging() {
 			//Delay for 30 seconds, then go and try again.	
 			for (int i=0; i<30; ++i) {
 				//This function takes a second.
-				leds_flash_charging_voltage_segment(bms_get_lowest_cell_voltage());
+				if (bms_get_charge_soc_percent(&soc_percent)) {
+					leds_flash_charging_soc_segment(soc_percent);
+				}
+				else {
+					leds_flash_charging_voltage_segment(bms_get_lowest_cell_voltage());
+				}
 				//Check the charger hasn't been unplugged while we're waiting
 				//If it has, abandon the charge process and return to main loop
 				if (!port_pin_get_input_level(CHARGER_CONNECTED_PIN)) {
@@ -673,7 +710,7 @@ void bms_handle_charging() {
 			bq7693_disable_charge();
 			
 			leds_pwm_disable();
-			leds_display_battery_voltage(CELL_FULL_CHARGE_VOLTAGE);
+			leds_display_battery_soc(100);
 
 			bms_state = BMS_CHARGER_CONNECTED_NOT_CHARGING;
 
