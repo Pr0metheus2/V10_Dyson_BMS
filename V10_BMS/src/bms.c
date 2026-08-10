@@ -17,6 +17,7 @@ enum BMS_ERROR_CODE bms_error = BMS_ERR_NONE;
 // Wake-from-sleep needs a short grace window so the first post-sleep BQ reads
 // do not trip false fault flashes before discharge is fully settled.
 static bool bms_woke_from_sleep = false;
+static bool bms_wake_banner_shown = false;
 static bool bms_wake_skip_undertemp_once = false;
 static bool bms_wake_skip_charge_undertemp_once = false;
 static bool bms_wake_skip_charge_cell_fail_once = false;
@@ -35,12 +36,18 @@ static uint8_t bms_wake_running_grace_loops = 0;
 // reading initial cell voltages.
 #define BQ76930_WAKE_SETTLE_MS 400
 
+#define CELL_BALANCE_TOLERANCE_MV 50
+#define CELL_BALANCE_FLASH_STEP_MV 50
+#define CELL_BALANCE_INITIAL_DELAY_MS 250
+#define CELL_BALANCE_FLASH_ON_MS 250
+#define CELL_BALANCE_FLASH_OFF_MS 250
+
 #ifdef SERIAL_DEBUG
 char *bms_state_names[] = {
 	"BMS_IDLE",
 	"BMS_CHARGER_CONNECTED",
 	"BMS_CHARGING",
-	"BMS_CHARGER_CONNECTED_NOT_CHARGING"
+	"BMS_CHARGER_CONNECTED_NOT_CHARGING",
 	"BMS_CHARGER_UNPLUGGED",
 	"BMS_TRIGGER_PULLED",
 	"BMS_DISCHARGING",
@@ -82,6 +89,35 @@ static bool bms_get_charge_soc_percent(uint8_t *soc_percent) {
 
 	*soc_percent = (uint8_t)((charge_level * 100L) / total_capacity);
 	return true;
+}
+
+static void bms_show_cell_balance(void) {
+	uint16_t *cell_voltages = bq7693_get_cell_voltages();
+	uint16_t lowest_cell_voltage = cell_voltages[0];
+	uint16_t highest_cell_voltage = cell_voltages[0];
+
+	for (int i = 1; i < 7; ++i) {
+		if (cell_voltages[i] < lowest_cell_voltage) {
+			lowest_cell_voltage = cell_voltages[i];
+		}
+		if (cell_voltages[i] > highest_cell_voltage) {
+			highest_cell_voltage = cell_voltages[i];
+		}
+	}
+
+	uint16_t cell_spread_mv = highest_cell_voltage - lowest_cell_voltage;
+	if (cell_spread_mv <= CELL_BALANCE_TOLERANCE_MV) {
+		return;
+	}
+
+	uint8_t flashes = cell_spread_mv / CELL_BALANCE_FLASH_STEP_MV;
+	sw_timer_delay_ms(CELL_BALANCE_INITIAL_DELAY_MS);
+	for (uint8_t i = 0; i < flashes; ++i) {
+		leds_flash_error_led(CELL_BALANCE_FLASH_ON_MS);
+		if (i + 1 < flashes) {
+			sw_timer_delay_ms(CELL_BALANCE_FLASH_OFF_MS);
+		}
+	}
 }
 
 static void bms_prepare_wake_from_sleep(void) {
@@ -142,6 +178,32 @@ void pins_init() {
 }
 
 volatile int32_t currentmA;
+
+static void bms_sleep_wake_callback(void) {
+	// The wake input is handled after system_sleep() returns.
+}
+
+static void bms_configure_sleep_wake_source(uint8_t channel, uint32_t gpio_pin,
+		uint32_t gpio_pin_mux) {
+	struct extint_chan_conf config_extint_chan;
+	extint_chan_get_config_defaults(&config_extint_chan);
+	config_extint_chan.gpio_pin = gpio_pin;
+	config_extint_chan.gpio_pin_mux = gpio_pin_mux;
+	config_extint_chan.gpio_pin_pull = EXTINT_PULL_NONE;
+	config_extint_chan.detection_criteria = EXTINT_DETECT_RISING;
+
+	extint_chan_set_config(channel, &config_extint_chan);
+	extint_chan_clear_detected(channel);
+	extint_register_callback(bms_sleep_wake_callback, channel, EXTINT_CALLBACK_TYPE_DETECT);
+	extint_chan_enable_callback(channel, EXTINT_CALLBACK_TYPE_DETECT);
+}
+
+static void bms_configure_sleep_wake_sources(void) {
+	bms_configure_sleep_wake_source(4, PIN_PA04A_EIC_EXTINT4,
+		MUX_PA04A_EIC_EXTINT4);
+	bms_configure_sleep_wake_source(6, PIN_PA06A_EIC_EXTINT6,
+		MUX_PA06A_EIC_EXTINT6);
+}
 	
 void bms_interrupt_callback(void) {
 	uint8_t sys_stat;
@@ -194,6 +256,7 @@ void interrupts_init() {
 	//no pullups.
 	config_extint_chan.gpio_pin_pull      = EXTINT_PULL_NONE;
 	config_extint_chan.detection_criteria = EXTINT_DETECT_RISING;
+	config_extint_chan.wake_if_sleeping = false;
 	
 	extint_chan_set_config(8, &config_extint_chan);
 	extint_register_callback(bms_interrupt_callback, 8, EXTINT_CALLBACK_TYPE_DETECT);
@@ -446,8 +509,13 @@ void bms_handle_idle() {
 void bms_handle_trigger_pulled() {
 	if (bms_woke_from_sleep) {
 		// Wake-up is handled by the discharge loop so output comes up first.
-		// Use the pre-sleep reading immediately; new BQ readings need time to settle.
-		if (eeprom_data.lowest_cell_voltage >= CELL_LOWEST_CHARGE_VOLTAGE &&
+		// Use the EEPROM-saved coulomb-counter SoC immediately. This matches the
+		// later discharge display while BQ readings are still settling.
+		uint8_t soc_percent;
+		if (bms_get_charge_soc_percent(&soc_percent)) {
+			leds_display_battery_soc(soc_percent);
+		}
+		else if (eeprom_data.lowest_cell_voltage >= CELL_LOWEST_CHARGE_VOLTAGE &&
 			eeprom_data.lowest_cell_voltage <= CELL_OVERVOLTAGE_TRIP) {
 			leds_display_battery_voltage(eeprom_data.lowest_cell_voltage);
 		}
@@ -469,14 +537,24 @@ void bms_handle_trigger_pulled() {
 
 void bms_handle_sleep() {
 	// Store pack charge data and the last valid LED voltage before sleeping.
+#ifdef SERIAL_DEBUG
+	serial_debug_send_message("Entering sleep - pack cell voltages:\r\n");
+	serial_debug_send_cell_voltages();
+#endif
 	eeprom_data.lowest_cell_voltage = bms_get_lowest_cell_voltage();
 	eeprom_write();
 	eeprom_mark_sleep_wakeup();
-	
+
+	// A watchdog reset is not a valid sleep wake-up. Only trigger or charger
+	// activity should restart the BMS after standby.
+	wdt_deinit();
+	bms_configure_sleep_wake_sources();
 	bq7693_enter_sleep_mode();
-	
-	//We are about to get powered down.
-	while(1);
+	system_set_sleepmode(SYSTEM_SLEEPMODE_STANDBY);
+	system_sleep();
+
+	// Reinitialize all BQ and peripheral state after a valid standby wake-up.
+	system_reset();
 }
 
 void bms_handle_discharging() {		
@@ -602,13 +680,12 @@ void bms_handle_charger_connected() {
 
 void bms_handle_charger_connected_not_charging() {
 	leds_display_battery_voltage(CELL_FULL_CHARGE_VOLTAGE);
-	//Wait up to 30 seconds to see if someone unplugs the charger.
-	//If so, to idle.
+	// Wait for a final charger removal while showing the full battery level.
 	//If not, to sleep.
-	for (int i=0; i<30; ++i) {
+	for (int i=0; i<FULL_CHARGE_DISPLAY_TIMEOUT_SECONDS; ++i) {
 		if (!port_pin_get_input_level(CHARGER_CONNECTED_PIN)) {
 			leds_off();
-			bms_state = BMS_IDLE;
+			bms_state = BMS_CHARGER_UNPLUGGED;
 			return;
 		}		
 		sw_timer_delay_ms(1000);
@@ -733,6 +810,8 @@ void bms_handle_charger_unplugged() {
 	leds_pwm_disable();
 	leds_off();
 	leds_sequence();
+	// One short red flash per 50 mV of cell-voltage spread above tolerance.
+	bms_show_cell_balance();
 
 #ifdef SERIAL_DEBUG
 	serial_debug_send_message("Charger unplugged\r\n");
@@ -748,6 +827,12 @@ void bms_mainloop() {
 	while (1) {
 		
 #ifdef SERIAL_DEBUG
+		if (bms_woke_from_sleep) {
+			if (!bms_wake_banner_shown) {
+				serial_debug_send_message("\r\nDyson V10 BMS Aftermarket firmware v" FIRMWARE_VERSION_STRING "\r\n");
+				bms_wake_banner_shown = true;
+			}
+		}
 		sprintf(debug_msg_buffer, "%s: Entering state %s\r\n", __FUNCTION__, bms_state_names[bms_state]);
 		serial_debug_send_message(debug_msg_buffer);
 #endif

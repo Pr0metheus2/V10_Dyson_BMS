@@ -9,7 +9,7 @@
 #include "sw_timer.h"
 
 // Speed of LED sequence.
-#define LED_SEQ_TIME 10
+#define LED_SEQ_TIME 20
 
 // Hardware PWM breathing cadence.
 #define LED_BREATHE_STEP_MS 12
@@ -317,6 +317,12 @@ void leds_blink_error_led(int ms) {
 	sw_timer_delay_ms(ms / 2);
 	port_pin_set_output_level(LED_ERR, false);
 	sw_timer_delay_ms(ms / 2);
+}
+
+void leds_flash_error_led(int on_ms) {
+	port_pin_set_output_level(LED_ERR, true);
+	sw_timer_delay_ms(on_ms);
+	port_pin_set_output_level(LED_ERR, false);
 }
 
 void leds_show_pack_flat(void) {
