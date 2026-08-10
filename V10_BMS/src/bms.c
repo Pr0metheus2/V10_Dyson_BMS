@@ -302,6 +302,8 @@ void bms_init() {
 	
 	//Only show the welcome sequence on true power-up or reset, not on a wake from sleep.
 	if (!bms_woke_from_sleep && eeprom_should_show_startup_sequence()) {
+		// Reclaim all LED pins as GPIO outputs, as done before the charger-unplug sequence.
+		leds_pwm_disable();
 		leds_sequence();
 	}
 	

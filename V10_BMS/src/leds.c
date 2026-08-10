@@ -44,6 +44,7 @@ static bool led_pwm_rising = true;
 
 static void leds_gpio_init(void);
 static void leds_battery_gpio_set(bool lo, bool med, bool hi);
+static void leds_sequence_with_step_time(int step_time_ms);
 static void leds_pwm_disable_hw(void);
 static void leds_pwm_init(enum led_pwm_mode mode);
 static void leds_pwm_set_duty(uint8_t duty);
@@ -247,15 +248,19 @@ static void leds_breathe_tick(uint16_t led_pin) {
 	}
 }
 
-void leds_sequence(void) {
+static void leds_sequence_with_step_time(int step_time_ms) {
 	for (int i = 0; i < NUM_LEDS; ++i) {
 		port_pin_set_output_level(leds[i], true);
-		sw_timer_delay_ms(LED_SEQ_TIME);
+		sw_timer_delay_ms(step_time_ms);
 	}
 	for (int i = NUM_LEDS - 1; i >= 0; --i) {
 		port_pin_set_output_level(leds[i], false);
-		sw_timer_delay_ms(LED_SEQ_TIME);
+		sw_timer_delay_ms(step_time_ms);
 	}
+}
+
+void leds_sequence(void) {
+	leds_sequence_with_step_time(LED_SEQ_TIME);
 }
 
 void leds_off(void) {
