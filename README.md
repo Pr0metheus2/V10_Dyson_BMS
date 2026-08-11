@@ -1,12 +1,14 @@
 This is a fork from https://github.com/davidmpye/V10_Dyson_BMS
 
-# V10_Dyson_BMS
+# Dyson V10 Firmware & Custom BMS
+
+Custom Dyson V10 firmware and reverse-engineering documentation for programming and repairing Dyson V10 Battery Management System (BMS) boards.
 
 A written-from-scratch unofficial firmware for Dyson V10 Battery Management Systems
 
 Allows __YOU__ to take control of your pack - rebuild it, use it to power something else, and best of all, __you can install the new firmware with just a Raspberry Pi__ - no need for expensive programmers!
 
-Have a read of the [Wiki](https://codeberg.org/davidmpye/V10_Dyson_BMS/wiki) for more information!
+Have a read of the [Wiki](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki) for more information!
 
 TL:DR update of current position:
 
@@ -21,6 +23,15 @@ Problems
 - No cell balancing (same as stock), I doubt this can be fixed trivially.
 
 ![v10-closeup](https://github.com/davidmpye/V10_Dyson_BMS/assets/2261985/9c3c997c-1c46-4f77-aa3a-e4a8f9b940f4)
+
+## How to Flash the Dyson V10 BMS Firmware
+Jump to Wiki [Flashing](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki/Flashing) section
+
+## Features & Operating Modes
+Jump to Wiki [New firmware operation](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki/New-firmware-operation) section
+
+## Hardware & Programmer Requirements
+Jump to Wiki [Hardware info](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki/Hardware-info) section
 
 ## Are you looking for support for Dyson V11 batteries?
 
