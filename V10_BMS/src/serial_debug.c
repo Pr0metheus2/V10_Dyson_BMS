@@ -49,8 +49,7 @@ void serial_debug_init() {
 	usart_enable(&debug_usart);
 	
 	//Initial debug blurb
-	serial_debug_send_message("Dyson V10 BMS Aftermarket firmware v" FIRMWARE_VERSION_STRING "\r\n");
-	serial_debug_send_cell_voltages();
+	serial_debug_send_message("\r\nDyson V10 BMS Aftermarket firmware v" FIRMWARE_VERSION_STRING "\r\n");
 #endif
 
 }
