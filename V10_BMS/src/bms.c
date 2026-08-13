@@ -17,7 +17,6 @@ enum BMS_ERROR_CODE bms_error = BMS_ERR_NONE;
 // Wake-from-sleep needs a short grace window so the first post-sleep BQ reads
 // do not trip false fault flashes before discharge is fully settled.
 static bool bms_woke_from_sleep = false;
-static bool bms_wake_banner_shown = false;
 static bool bms_wake_skip_undertemp_once = false;
 static bool bms_wake_skip_charge_undertemp_once = false;
 static bool bms_wake_skip_charge_cell_fail_once = false;
@@ -41,6 +40,12 @@ static uint8_t bms_wake_running_grace_loops = 0;
 #define CELL_BALANCE_INITIAL_DELAY_MS 250
 #define CELL_BALANCE_FLASH_ON_MS 250
 #define CELL_BALANCE_FLASH_OFF_MS 250
+
+#define CHARGING_GESTURE_WINDOW_MS 5000
+#define CHARGING_CAPACITY_HOLD_MS 5000
+#define CHARGING_DISPLAY_FLASH_ON_MS 250
+#define CHARGING_DISPLAY_FLASH_OFF_MS 250
+#define CHARGING_DISPLAY_PAUSE_MS 1000
 
 #ifdef SERIAL_DEBUG
 char *bms_state_names[] = {
@@ -118,6 +123,93 @@ static void bms_show_cell_balance(void) {
 			sw_timer_delay_ms(CELL_BALANCE_FLASH_OFF_MS);
 		}
 	}
+}
+
+static bool bms_wait_while_charger_connected(uint32_t duration_ms) {
+	uint32_t elapsed_ms = 0;
+
+	while (elapsed_ms < duration_ms) {
+		if (!port_pin_get_input_level(CHARGER_CONNECTED_PIN)) {
+			return false;
+		}
+
+		uint32_t wait_ms = duration_ms - elapsed_ms;
+		if (wait_ms > 20U) {
+			wait_ms = 20U;
+		}
+		sw_timer_delay_ms(wait_ms);
+		elapsed_ms += wait_ms;
+	}
+
+	return port_pin_get_input_level(CHARGER_CONNECTED_PIN);
+}
+
+static bool bms_flash_charging_display_segment(uint8_t segment, bool keep_version_marker) {
+	leds_show_battery_segments(segment == 1, segment == 2 || keep_version_marker,
+		segment == 3);
+	if (!bms_wait_while_charger_connected(CHARGING_DISPLAY_FLASH_ON_MS)) {
+		return false;
+	}
+
+	leds_show_battery_segments(false, keep_version_marker, false);
+	return bms_wait_while_charger_connected(CHARGING_DISPLAY_FLASH_OFF_MS);
+}
+
+static bool bms_show_charging_capacity(void) {
+	uint16_t capacity_tens_mah = (uint16_t)(eeprom_data.total_pack_capacity / 10000L);
+	uint8_t digits[3] = {
+		(uint8_t)((capacity_tens_mah / 100U) % 10U),
+		(uint8_t)((capacity_tens_mah / 10U) % 10U),
+		(uint8_t)(capacity_tens_mah % 10U),
+	};
+
+	leds_pwm_disable();
+	if (!bms_wait_while_charger_connected(CHARGING_DISPLAY_PAUSE_MS)) {
+		return false;
+	}
+	for (uint8_t segment = 1; segment <= 3; ++segment) {
+		for (uint8_t flash = 0; flash < digits[segment - 1]; ++flash) {
+			if (!bms_flash_charging_display_segment(segment, false)) {
+				return false;
+			}
+		}
+		leds_show_battery_segment(0);
+		if (!bms_wait_while_charger_connected(CHARGING_DISPLAY_PAUSE_MS)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool bms_show_charging_version(void) {
+	uint8_t major = FIRMWARE_VERSION_MAJOR % 10U;
+	uint8_t minor = FIRMWARE_VERSION_MINOR % 10U;
+
+	leds_pwm_disable();
+	if (!bms_wait_while_charger_connected(CHARGING_DISPLAY_PAUSE_MS)) {
+		return false;
+	}
+	leds_show_battery_segment(2);
+	if (!bms_wait_while_charger_connected(CHARGING_DISPLAY_PAUSE_MS)) {
+		return false;
+	}
+
+	for (uint8_t flash = 0; flash < major; ++flash) {
+		if (!bms_flash_charging_display_segment(1, true)) {
+			return false;
+		}
+	}
+	if (!bms_wait_while_charger_connected(CHARGING_DISPLAY_PAUSE_MS)) {
+		return false;
+	}
+
+	for (uint8_t flash = 0; flash < minor; ++flash) {
+		if (!bms_flash_charging_display_segment(3, true)) {
+			return false;
+		}
+	}
+	leds_show_battery_segment(0);
+	return bms_wait_while_charger_connected(CHARGING_DISPLAY_PAUSE_MS);
 }
 
 static void bms_prepare_wake_from_sleep(void) {
@@ -540,7 +632,7 @@ void bms_handle_trigger_pulled() {
 void bms_handle_sleep() {
 	// Store pack charge data and the last valid LED voltage before sleeping.
 #ifdef SERIAL_DEBUG
-	serial_debug_send_message("Entering sleep - pack cell voltages:\r\n");
+	serial_debug_send_message("Entering sleep...\r\n");
 	serial_debug_send_cell_voltages();
 #endif
 	eeprom_data.lowest_cell_voltage = bms_get_lowest_cell_voltage();
@@ -704,10 +796,15 @@ void bms_handle_charging() {
 	}
 	//Enable charging.
 	port_pin_set_output_level(ENABLE_CHARGE_PIN, true);
-	 //Enable the charge FET in the BQ7693.
+	//Enable the charge FET in the BQ7693.
 	bq7693_enable_charge();
 	
 	int charge_pause_counter = 0;
+	bool trigger_was_pressed = false;
+	bool trigger_ignore_until_release = false;
+	uint8_t trigger_press_count = 0;
+	sw_timer trigger_window_timer = 0;
+	sw_timer trigger_hold_timer = 0;
 	while (1) {
 		//Charging now in progress.		
 		//Show the flashing segment selected by the counted state of charge.
@@ -717,6 +814,72 @@ void bms_handle_charging() {
 		}
 		else {
 			leds_flash_charging_voltage_segment(bms_get_lowest_cell_voltage());
+		}
+
+		// While charging, trigger gestures request a read-only LED display.
+		// The display functions block, which intentionally ignores trigger input
+		// until the sequence and its final dark pause have completed.
+		bool trigger_pressed = port_pin_get_input_level(TRIGGER_PRESSED_PIN);
+		if (trigger_ignore_until_release) {
+			if (!trigger_pressed) {
+				trigger_ignore_until_release = false;
+				trigger_was_pressed = false;
+				sw_timer_stop(&trigger_hold_timer);
+			}
+		}
+		else if (trigger_pressed) {
+			if (!trigger_was_pressed) {
+				if (!sw_timer_is_started(&trigger_window_timer)) {
+					trigger_press_count = 0;
+					sw_timer_start(&trigger_window_timer);
+				}
+				++trigger_press_count;
+				trigger_was_pressed = true;
+				sw_timer_start(&trigger_hold_timer);
+			}
+
+			if (sw_timer_is_elapsed(&trigger_hold_timer, CHARGING_CAPACITY_HOLD_MS)) {
+#ifdef SERIAL_DEBUG
+				sprintf(debug_msg_buffer, "Charging gesture: displaying total pack capacity %ld mAh\r\n",
+					eeprom_data.total_pack_capacity / 1000L);
+				serial_debug_send_message(debug_msg_buffer);
+#endif
+				if (!bms_show_charging_capacity()) {
+					port_pin_set_output_level(ENABLE_CHARGE_PIN, false);
+					bq7693_disable_charge();
+					leds_pwm_disable();
+					bms_state = BMS_CHARGER_UNPLUGGED;
+					return;
+				}
+				trigger_ignore_until_release = true;
+				trigger_press_count = 0;
+				sw_timer_stop(&trigger_window_timer);
+			}
+			else if (trigger_press_count >= 5) {
+#ifdef SERIAL_DEBUG
+				serial_debug_send_message("Charging gesture: displaying firmware version v" FIRMWARE_VERSION_STRING "\r\n");
+#endif
+				if (!bms_show_charging_version()) {
+					port_pin_set_output_level(ENABLE_CHARGE_PIN, false);
+					bq7693_disable_charge();
+					leds_pwm_disable();
+					bms_state = BMS_CHARGER_UNPLUGGED;
+					return;
+				}
+				trigger_ignore_until_release = true;
+				trigger_press_count = 0;
+				sw_timer_stop(&trigger_window_timer);
+				sw_timer_stop(&trigger_hold_timer);
+			}
+		}
+		else {
+			trigger_was_pressed = false;
+			sw_timer_stop(&trigger_hold_timer);
+		}
+
+		if (trigger_press_count > 0 &&
+			sw_timer_is_elapsed(&trigger_window_timer, CHARGING_GESTURE_WINDOW_MS)) {
+			trigger_press_count = 0;
 		}
 	
 #ifdef SERIAL_DEBUG
@@ -829,12 +992,6 @@ void bms_mainloop() {
 	while (1) {
 		
 #ifdef SERIAL_DEBUG
-		if (bms_woke_from_sleep) {
-			if (!bms_wake_banner_shown) {
-				serial_debug_send_message("\r\nDyson V10 BMS Aftermarket firmware v" FIRMWARE_VERSION_STRING "\r\n");
-				bms_wake_banner_shown = true;
-			}
-		}
 		sprintf(debug_msg_buffer, "%s: Entering state %s\r\n", __FUNCTION__, bms_state_names[bms_state]);
 		serial_debug_send_message(debug_msg_buffer);
 #endif

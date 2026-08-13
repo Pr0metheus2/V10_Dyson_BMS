@@ -289,6 +289,23 @@ void leds_display_battery_soc(uint8_t soc_percent) {
 	leds_battery_gpio_set(segments >= 1, segments >= 2, segments >= 3);
 }
 
+void leds_show_battery_segment(uint8_t segment) {
+	leds_pwm_disable();
+	leds_battery_gpio_set(segment == 1, segment == 2, segment == 3);
+}
+
+void leds_show_battery_segments(bool lo, bool med, bool hi) {
+	leds_pwm_disable();
+	leds_battery_gpio_set(lo, med, hi);
+}
+
+void leds_flash_battery_segment(uint8_t segment, int on_ms, int off_ms) {
+	leds_show_battery_segment(segment);
+	sw_timer_delay_ms(on_ms);
+	leds_off();
+	sw_timer_delay_ms(off_ms);
+}
+
 void leds_flash_charging_voltage_segment(int cell_mv) {
 	uint8_t segments = leds_battery_segments_from_voltage(cell_mv);
 
