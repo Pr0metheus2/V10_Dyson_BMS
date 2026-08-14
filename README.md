@@ -1,38 +1,42 @@
-This is a fork from https://github.com/davidmpye/V10_Dyson_BMS
+> [!NOTE]
+> This repository is an enhanced fork of the original project by [davidmpye/V10_Dyson_BMS](https://github.com/davidmpye/V10_Dyson_BMS).
 
-# Dyson V10 Firmware & Custom BMS
+# Dyson V10 Custom BMS Firmware
 
-Custom Dyson V10 firmware and reverse-engineering documentation for programming and repairing Dyson V10 Battery Management System (BMS) boards.
+A written-from-scratch, unofficial replacement firmware and reverse-engineering resource for the **Dyson V10 Battery Management System (BMS)** board.
 
-A written-from-scratch unofficial firmware for Dyson V10 Battery Management Systems
+This project allows **YOU** to take total control of your battery pack—rebuild it, repair cell fault lockouts, or use it as a standalone power source for custom projects. Best of all, **you can install the new firmware using just a Raspberry Pi**—no expensive SWD programmer required!
 
-Allows __YOU__ to take control of your pack - rebuild it, use it to power something else, and best of all, __you can install the new firmware with just a Raspberry Pi__ - no need for expensive programmers!
+![Dyson V10 BMS Closeup](https://github.com/davidmpye/V10_Dyson_BMS/assets/2261985/9c3c997c-1c46-4f77-aa3a-e4a8f9b940f4)
 
-Have a read of the [Wiki](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki) for more information!
+---
 
-TL:DR update of current position:
+## ⚡ Status & What Works
 
-What works:
+* **Charging & Discharging:** Fully handles pack charging and drives the Dyson V10 vacuum motor.
+* **Vacuum Communication:** Implements bidirectional USART comms to keep the cleaner running seamlessly.
+* **Status & Error LEDs:** Displays vacuum fault states (e.g., Blocked / Filter missing) and BMS protection codes using the native LEDs.
+* **Coulomb Counter:** Tracks state of charge (SoC) using the BMS IC's integrated coulomb counter.
+* **Standalone Power:** Works without a Dyson vacuum connected, so you can use the pack to power DIY projects or power tools.
 
-- can charge pack, can drive vacuum cleaner, including the USART comms to keep the cleaner working
-- error reporting if faults occur
-- uses the rest of the status LEDs to reflect cleaner problems eg Blocked/Filter statuses
-- uses the coulomb charge counter to monitor pack charge, just displays guestimates based on cell voltage.
+> [!TIP]
+> See the **[Releases Section](https://github.com/Pr0metheus2/V10_Dyson_BMS/releases)** for a complete changelog, download binaries, and full feature lists for each release.
 
-Problems
-- No cell balancing (same as stock), I doubt this can be fixed trivially.
+> [!WARNING]
+> **Cell Balancing Note:** Like stock firmware, active/passive cell balancing is not implemented due to hardware limitations of the board.
 
-![v10-closeup](https://github.com/davidmpye/V10_Dyson_BMS/assets/2261985/9c3c997c-1c46-4f77-aa3a-e4a8f9b940f4)
+---
 
-## How to Flash the Dyson V10 BMS Firmware
-Jump to Wiki [Flashing](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki/Flashing) section
+## 📚 Documentation & Wiki Guides
 
-## Features & Operating Modes
-Jump to Wiki [New firmware operation](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki/New-firmware-operation) section
+Everything you need to get started is documented in detail in our **[Project Wiki](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki)**:
 
-## Hardware & Programmer Requirements
-Jump to Wiki [Hardware info](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki/Hardware-info) section
+* ⚡ **[How to Flash the Firmware](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki/Flashing)** — Step-by-step guides for Raspberry Pi, Atmel-ICE, and WCH-LinkE.
+* 🔋 **[New Firmware Operation](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki/New-firmware-operation)** — Gestures for capacity checks, firmware version display, and LED codes.
+* 🛠️ **[Hardware Info & Datasheets](https://github.com/Pr0metheus2/V10_Dyson_BMS/wiki/Hardware-info)** — Pinouts, component specs, and schematic details.
 
-## Are you looking for support for Dyson V11 batteries?
+---
 
-If so, you need [this](https://github.com/vladislav1983/V11_Dyson_BMS/) !
+## Looking for Dyson V11 Support?
+
+If you are looking for replacement firmware for Dyson **V11** series packs, check out [vladislav1983/V11_Dyson_BMS](https)!
