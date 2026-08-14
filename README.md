@@ -22,7 +22,7 @@ This project allows **YOU** to take total control of your battery pack—rebuild
 > [!TIP]
 > See the **[Releases Section](https://github.com/Pr0metheus2/V10_Dyson_BMS/releases)** for a complete changelog, download binaries, and full feature lists for each release.
 
-> [!WARNING]
+> [!NOTE]
 > **Cell Balancing Note:** Like stock firmware, active/passive cell balancing is not implemented due to hardware limitations of the board.
 
 ---
