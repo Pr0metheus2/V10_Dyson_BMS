@@ -39,4 +39,4 @@ Everything you need to get started is documented in detail in our **[Project Wik
 
 ## Looking for Dyson V11 Support?
 
-If you are looking for replacement firmware for Dyson **V11** series packs, check out [vladislav1983/V11_Dyson_BMS](https)!
+If you are looking for replacement firmware for Dyson **V11** series packs, check out [vladislav1983/V11_Dyson_BMS](https://github.com/vladislav1983/V11_Dyson_BMS/)!
