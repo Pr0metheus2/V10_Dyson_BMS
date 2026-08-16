@@ -2,6 +2,8 @@
 
 Various people and projects, who have provided inspiration and ideas for getting the V10 firmware project off the ground!
 
+* davidmpye for his support for V10 battery. His project is [here](https://github.com/davidmpye/V10_Dyson_BMS)
+
 * Tinfever, for their BMS firmware for Dyson V6/V7 batteries, showing that it can be done!
 Their project is [here](https://github.com/tinfever/FU-Dyson-BMS)
 
