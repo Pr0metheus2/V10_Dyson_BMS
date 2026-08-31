@@ -12,7 +12,7 @@ struct usart_module debug_usart;
 #include <string.h>
 #endif
 
-char debug_buffer[80];
+char debug_buffer[128];
 char *debug_msg_buffer = debug_buffer;
 
 static inline void pin_set_peripheral_function(uint32_t pinmux) {
@@ -66,6 +66,10 @@ void serial_debug_send_message(char *msg) {
 
 void serial_debug_send_cell_voltages() {
 #ifdef SERIAL_DEBUG
+	if (!bq7693_update_cell_voltages()) {
+		serial_debug_send_message("Unable to read BQ76930 cell voltages.\r\n");
+		return;
+	}
 	uint16_t *cell_voltages = bq7693_get_cell_voltages();
 	serial_debug_send_message("Pack cell voltages:\r\n");
 	for (int i=0; i<7; ++i) {

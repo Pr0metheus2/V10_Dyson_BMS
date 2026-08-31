@@ -117,7 +117,8 @@ bool bq7693_read_register(uint8_t addr, size_t len, uint8_t *buf) {
 	while (i2c_master_write_packet_wait(&i2c_master_instance, &packet) != STATUS_OK) {
 		/* Increment timeout counter and check if timed out. */
 		if (timeout++ == BQ7693_TIMEOUT) {
-			break;
+			result = false;
+			goto done;
 		}
 	}
 	//Rx value
@@ -132,6 +133,7 @@ bool bq7693_read_register(uint8_t addr, size_t len, uint8_t *buf) {
 		}
 	}
 	
+done:
 	system_interrupt_enable(4);
 	return result;
 }
@@ -221,7 +223,7 @@ void bq7693_disable_discharge() {
 	bq7693_write_register(SYS_CTRL2, 0x40);//CC_EN, DSG_OFF
 }
 
-int bq7693_read_temperature() {
+bool bq7693_read_temperature(int *temperature_tenths_c) {
 	//Returns 'C * 10 eg 217 = 21.7'C
 	
 	volatile uint8_t scratch[3];
@@ -230,7 +232,9 @@ int bq7693_read_temperature() {
 	volatile unsigned long  rts;
 	volatile int vtsx;
 	volatile float tmp;
-	bq7693_read_register(TS2_HI_BYTE, 3, scratch);
+	if (!bq7693_read_register(TS2_HI_BYTE, 3, scratch)) {
+		return false;
+	}
 
 	adcVal =  ((scratch[0]&0x3F)<<8);
 	adcVal |= scratch[2]; //ignore the unwanted CRC byte.
@@ -241,13 +245,13 @@ int bq7693_read_temperature() {
 	 
 	// Temperature calculation using Beta equation
 	// - According to bq769x0 datasheet, only 10k thermistors should be used
-	// - 25°C reference temperature for Beta equation assumed
+	// - 25Â°C reference temperature for Beta equation assumed
     tmp = 1.0/(1.0/(273.15+25) + 1.0/3435 *log(rts/10000.0)); // K
-	volatile int result = (tmp - 273.15)* 10;
-	return result;
+	*temperature_tenths_c = (tmp - 273.15)* 10;
+	return true;
 }
 
-uint16_t *bq7693_get_cell_voltages() {
+bool bq7693_update_cell_voltages() {
 	volatile uint8_t scratch[3];
 	volatile uint16_t tempval;
 	//Voltages for each cell
@@ -255,11 +259,17 @@ uint16_t *bq7693_get_cell_voltages() {
 	int cellsToRead[] = { 0,1,2,3,5,6,9};
 	for (int i=0; i< 7; ++i) {
 		//Because CRC is enabled, we need to read 3 bytes (VCx_HI, the CRC byte (ignore), then VCx_Lo)
-		bq7693_read_register((VC1_HI_BYTE + 2*cellsToRead[i]), 3, scratch);
+		if (!bq7693_read_register((VC1_HI_BYTE + 2*cellsToRead[i]), 3, scratch)) {
+			return false;
+		}
 		tempval = ((scratch[0] & 0x3F) <<8) | scratch[2];
 		bq7693_cell_voltages[i] = tempval * bq7693_adc_gain/1000 + bq7693_adc_offset;
 	}
 
+	return true;
+}
+
+uint16_t *bq7693_get_cell_voltages() {
 	return bq7693_cell_voltages;
 }
 
@@ -278,14 +288,17 @@ void bq7693_enter_sleep_mode() {
 	bq7693_write_register(SYS_CTRL1, 0x02);
 }
 
-int16_t bq7693_read_cc() {
+bool bq7693_read_cc(int16_t *cc_value) {
 	int16_t tempCC;
 	
 	uint8_t scratch[3];
-	bq7693_read_register(CC_HI_BYTE, 3, scratch);
+	if (!bq7693_read_register(CC_HI_BYTE, 3, scratch)) {
+		return false;
+	}
 	tempCC =  ((scratch[0])<<8);
 	tempCC |= scratch[2]; //ignore the unwanted CRC byte.
 	
-	return tempCC;
+	*cc_value = tempCC;
+	return true;
 }
 
