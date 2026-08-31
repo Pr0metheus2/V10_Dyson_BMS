@@ -63,17 +63,21 @@ char *bms_state_names[] = {
 
 extern volatile struct eeprom_data eeprom_data;
 
-static uint16_t bms_get_lowest_cell_voltage(void) {
+static bool bms_get_lowest_cell_voltage(uint16_t *lowest_cell_voltage) {
+	if (!bq7693_update_cell_voltages()) {
+		return false;
+	}
+
 	uint16_t *cell_voltages = bq7693_get_cell_voltages();
-	uint16_t lowest_cell_voltage = cell_voltages[0];
+	*lowest_cell_voltage = cell_voltages[0];
 
 	for (int i = 1; i < 7; ++i) {
-		if (cell_voltages[i] < lowest_cell_voltage) {
-			lowest_cell_voltage = cell_voltages[i];
+		if (cell_voltages[i] < *lowest_cell_voltage) {
+			*lowest_cell_voltage = cell_voltages[i];
 		}
 	}
 
-	return lowest_cell_voltage;
+	return true;
 }
 
 static bool bms_get_charge_soc_percent(uint8_t *soc_percent) {
@@ -97,6 +101,10 @@ static bool bms_get_charge_soc_percent(uint8_t *soc_percent) {
 }
 
 static void bms_show_cell_balance(void) {
+	if (!bq7693_update_cell_voltages()) {
+		return;
+	}
+
 	uint16_t *cell_voltages = bq7693_get_cell_voltages();
 	uint16_t lowest_cell_voltage = cell_voltages[0];
 	uint16_t highest_cell_voltage = cell_voltages[0];
@@ -228,8 +236,9 @@ static void bms_prepare_wake_for_charge(void) {
 	//Wake from sleep can leave the first charge-side readings stale.
 	//BQ76930 requires 400 ms before initial cell-voltage reads after wake.
 	sw_timer_delay_ms(BQ76930_WAKE_SETTLE_MS);
-	(void)bq7693_get_cell_voltages();
-	(void)bq7693_read_temperature();
+	int ignored_temperature;
+	(void)bq7693_update_cell_voltages();
+	(void)bq7693_read_temperature(&ignored_temperature);
 	bms_wake_skip_charge_undertemp_once = true;
 }
 
@@ -299,10 +308,16 @@ static void bms_configure_sleep_wake_sources(void) {
 	
 void bms_interrupt_callback(void) {
 	uint8_t sys_stat;
-	bq7693_read_register(SYS_STAT, 1, &sys_stat);
+	if (!bq7693_read_register(SYS_STAT, 1, &sys_stat)) {
+		return;
+	}
 	if (sys_stat & 0x80) {
 		//Got a coulomb charger count ready.
-		int32_t ccVal = bq7693_read_cc();
+		int16_t cc_sample;
+		if (!bq7693_read_cc(&cc_sample)) {
+			return;
+		}
+		int32_t ccVal = cc_sample;
 		
 		//This needs better handling....
 		currentmA = ccVal*8.44f;
@@ -314,7 +329,7 @@ void bms_interrupt_callback(void) {
 			//sense resistor = 1mOhm
 			//microV / milliOhms gives current in mA.   
 			//so ccVal has current in mA.
-			//Dividing by 14400 would give mAH. (number of 250mS periods in 1 hr.
+			//Dividing by 14400 would give mAh. (number of 250 ms periods in 1 hour.)
 			//Dividing by 14.4 will give microAH (what we want)
 			ccVal /= 14.4f;
 		
@@ -416,6 +431,10 @@ bool bms_is_safe_to_discharge(bool check_undertemp) {
 		skip_wake_flat_fault = true;
 	}
 	
+	if (!bq7693_update_cell_voltages()) {
+		bms_error = BMS_ERR_I2C_FAIL;
+		return false;
+	}
 	uint16_t *cell_voltages = bq7693_get_cell_voltages();
 	//Check any cells undervolt.
 	for (int i=0; i<7;++i) {
@@ -437,7 +456,11 @@ bool bms_is_safe_to_discharge(bool check_undertemp) {
 		}
 	}
 	//Check pack temperature remains in acceptable range.
-	int temp = bq7693_read_temperature();
+	int temp;
+	if (!bq7693_read_temperature(&temp)) {
+		bms_error = BMS_ERR_I2C_FAIL;
+		return false;
+	}
 	if (temp/10  > MAX_PACK_TEMPERATURE) {
 		bms_error = BMS_ERR_PACK_OVERTEMP;
 		
@@ -463,7 +486,10 @@ bool bms_is_safe_to_discharge(bool check_undertemp) {
 	
 	//Check sys_stat	
 	uint8_t sys_stat;
-	bq7693_read_register(SYS_STAT, 1, &sys_stat);
+	if (!bq7693_read_register(SYS_STAT, 1, &sys_stat)) {
+		bms_error = BMS_ERR_I2C_FAIL;
+		return false;
+	}
 
 	if (sys_stat & 0x01) 	{
 		bms_error = BMS_ERR_OVERCURRENT;
@@ -511,6 +537,10 @@ bool bms_is_safe_to_charge() {
 	//Clear error status.
 	bms_error = BMS_ERR_NONE;
 	
+	if (!bq7693_update_cell_voltages()) {
+		bms_error = BMS_ERR_I2C_FAIL;
+		return false;
+	}
 	uint16_t *cell_voltages = bq7693_get_cell_voltages();
 	
 	//Check no cells are so flat they cannot be charged.
@@ -531,7 +561,11 @@ bool bms_is_safe_to_charge() {
 	}
 
 	//Check pack temperature acceptable (<=60'C)	
-	int temp = bq7693_read_temperature();
+	int temp;
+	if (!bq7693_read_temperature(&temp)) {
+		bms_error = BMS_ERR_I2C_FAIL;
+		return false;
+	}
 	if (temp/10  > MAX_PACK_TEMPERATURE) {
 		bms_error = BMS_ERR_PACK_OVERTEMP;
 	}
@@ -546,7 +580,10 @@ bool bms_is_safe_to_charge() {
 	
 	//Check sys_stat
 	uint8_t sys_stat;
-	bq7693_read_register(SYS_STAT, 1, &sys_stat);
+	if (!bq7693_read_register(SYS_STAT, 1, &sys_stat)) {
+		bms_error = BMS_ERR_I2C_FAIL;
+		return false;
+	}
 	if (sys_stat & 0x01) 	{
 		bms_error = BMS_ERR_OVERCURRENT;
 		bq7693_write_register(SYS_STAT, 0x01);
@@ -563,6 +600,9 @@ bool bms_is_safe_to_charge() {
 }
 
 bool bms_is_pack_full() {
+	if (!bq7693_update_cell_voltages()) {
+		return false;
+	}
 	uint16_t *cell_voltages = bq7693_get_cell_voltages();
 
 #ifdef SERIAL_DEBUG
@@ -635,7 +675,10 @@ void bms_handle_sleep() {
 	serial_debug_send_message("Entering sleep...\r\n");
 	serial_debug_send_cell_voltages();
 #endif
-	eeprom_data.lowest_cell_voltage = bms_get_lowest_cell_voltage();
+	uint16_t lowest_cell_voltage;
+	if (bms_get_lowest_cell_voltage(&lowest_cell_voltage)) {
+		eeprom_data.lowest_cell_voltage = lowest_cell_voltage;
+	}
 	eeprom_write();
 	eeprom_mark_sleep_wakeup();
 
@@ -668,9 +711,12 @@ void bms_handle_discharging() {
 	while (1) {
 		
 #ifdef SERIAL_DEBUG
-		sprintf(debug_msg_buffer,"Discharging at %d mA, %d mAH, capacity %d mAH, Temp %d'C\r\n", currentmA*-1, eeprom_data.current_charge_level/1000, eeprom_data.total_pack_capacity/1000,
-		bq7693_read_temperature()/10);
-		serial_debug_send_message(debug_msg_buffer);
+		int temperature;
+		if (bq7693_read_temperature(&temperature)) {
+			sprintf(debug_msg_buffer,"Discharging at %d mA, Rem.charge %ld mAh, Full-charge cap. %ld mAh, Temp %d'C\r\n", currentmA*-1, eeprom_data.current_charge_level/1000, eeprom_data.total_pack_capacity/1000,
+				temperature / 10);
+			serial_debug_send_message(debug_msg_buffer);
+		}
 #endif
 		if (port_pin_get_input_level(CHARGER_CONNECTED_PIN)) {
 			//Charger insertion must override discharge immediately.
@@ -713,7 +759,10 @@ void bms_handle_discharging() {
 					leds_display_battery_soc(soc_percent);
 				}
 				else {
-					leds_display_battery_voltage(bms_get_lowest_cell_voltage());
+					uint16_t lowest_cell_voltage;
+					if (bms_get_lowest_cell_voltage(&lowest_cell_voltage)) {
+						leds_display_battery_voltage(lowest_cell_voltage);
+					}
 				}
 			}
 		}
@@ -813,7 +862,10 @@ void bms_handle_charging() {
 			leds_flash_charging_soc_segment(soc_percent);
 		}
 		else {
-			leds_flash_charging_voltage_segment(bms_get_lowest_cell_voltage());
+			uint16_t lowest_cell_voltage;
+			if (bms_get_lowest_cell_voltage(&lowest_cell_voltage)) {
+				leds_flash_charging_voltage_segment(lowest_cell_voltage);
+			}
 		}
 
 		// While charging, trigger gestures request a read-only LED display.
@@ -883,9 +935,12 @@ void bms_handle_charging() {
 		}
 	
 #ifdef SERIAL_DEBUG
-		sprintf(debug_msg_buffer,"Charging at %d mA, %d mAH, capacity %d mAH, Temp %d'C\r\n", currentmA, eeprom_data.current_charge_level/1000, eeprom_data.total_pack_capacity/1000, 
-		bq7693_read_temperature()/10);
-		serial_debug_send_message(debug_msg_buffer);	
+		int temperature;
+		if (bq7693_read_temperature(&temperature)) {
+			sprintf(debug_msg_buffer,"Charging at %d mA, Rem.charge %ld mAh, Full-charge cap. %ld mAh, Temp %d'C\r\n", currentmA, eeprom_data.current_charge_level/1000, eeprom_data.total_pack_capacity/1000,
+				temperature / 10);
+			serial_debug_send_message(debug_msg_buffer);
+		}
 #endif
 		if (!bms_is_safe_to_charge()) {
 			//Safety error.
@@ -927,7 +982,10 @@ void bms_handle_charging() {
 					leds_flash_charging_soc_segment(soc_percent);
 				}
 				else {
-					leds_flash_charging_voltage_segment(bms_get_lowest_cell_voltage());
+					uint16_t lowest_cell_voltage;
+					if (bms_get_lowest_cell_voltage(&lowest_cell_voltage)) {
+						leds_flash_charging_voltage_segment(lowest_cell_voltage);
+					}
 				}
 				//Check the charger hasn't been unplugged while we're waiting
 				//If it has, abandon the charge process and return to main loop

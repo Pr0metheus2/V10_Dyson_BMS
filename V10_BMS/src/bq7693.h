@@ -27,6 +27,7 @@ void bq7693_init(void);
 bool bq7693_read_register(uint8_t addr, size_t len, uint8_t *buf);
 bool bq7693_write_register(uint8_t addr, uint8_t data);
 
+bool bq7693_update_cell_voltages(void);
 uint16_t* bq7693_get_cell_voltages(void);
 int bq7693_get_pack_voltage(void);
 void bq7693_enable_charge(void);
@@ -36,9 +37,9 @@ void bq7693_disable_charge(void);
 void bq7693_disable_discharge(void);
 
 void bq7693_enter_sleep_mode(void);
-int bq7693_read_temperature(void);
+bool bq7693_read_temperature(int *temperature_tenths_c);
 
-int16_t bq7693_read_cc(void);
+bool bq7693_read_cc(int16_t *cc_value);
 
 // register map
 #define SYS_STAT        0x00
