@@ -12,9 +12,8 @@
 #define LED_SEQ_TIME 20
 
 // Hardware PWM breathing cadence.
-#define LED_BREATHE_STEP_MS 12
+#define LED_BREATHE_STEP_MS 0
 #define LED_BREATHE_STEPS 64
-#define LED_BREATHE_MIN_DUTY 0
 #define LED_BREATHE_MAX_DUTY 255
 #define LED_PWM_PERIOD 255
 
@@ -167,22 +166,9 @@ void leds_pwm_disable(void) {
 }
 
 static uint8_t leds_pwm_duty_from_phase(uint8_t phase) {
-	uint32_t progress = ((uint32_t)phase * 100U) / (LED_BREATHE_STEPS - 1U);
-	// Remap the phase so the first part of the fade is steeper, which shortens
-	// the low-end hold while keeping the top end quick.
-	if (progress < 35U) {
-		progress = (progress * 2U);
-	}
-	else if (progress < 70U) {
-		progress = 70U + (((progress - 35U) * 25U) / 35U);
-	}
-	else {
-		progress = 95U + (((progress - 70U) * 5U) / 30U);
-	}
-	uint32_t eased = (progress * progress * progress) / 10000U;
-	uint32_t duty = LED_BREATHE_MIN_DUTY +
-		((eased * (LED_BREATHE_MAX_DUTY - LED_BREATHE_MIN_DUTY)) / 100U);
-	return (uint8_t)duty;
+	// Advance brightness uniformly so the fade does not linger at either end.
+	return (uint8_t)(((uint32_t)phase * LED_BREATHE_MAX_DUTY) /
+		(LED_BREATHE_STEPS - 1U));
 }
 
 static void leds_pwm_set_duty(uint8_t duty) {
