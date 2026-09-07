@@ -51,6 +51,9 @@
 #define FULL_CHARGE_PAUSE_COUNT 10 // Retry charging this many times after a full-charge pause.
 #define FULL_CHARGE_DISPLAY_TIMEOUT_SECONDS 60 // Show the full battery level before sleeping after charging terminates.
 
+// Ignore small BQ76930 coulomb-counter samples to avoid integrating idle noise.
+#define COULOMB_COUNTER_DEADBAND_COUNTS 2
+
 // Firmware version is injected from CMake so build output names stay in sync.
 
 // #define SERIAL_DEBUG 1 // Uncomment to enable serial debug via the spare USART on the programming pins header
