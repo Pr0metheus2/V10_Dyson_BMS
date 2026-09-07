@@ -364,6 +364,7 @@ void pins_init() {
 }
 
 volatile int32_t currentmA;
+static int32_t coulomb_charge_remainder;
 
 static void bms_sleep_wake_callback(void) {
 	// The wake input is handled after system_sleep() returns.
@@ -402,23 +403,20 @@ void bms_interrupt_callback(void) {
 		if (!bq7693_read_cc(&cc_sample)) {
 			return;
 		}
-		int32_t ccVal = cc_sample;
-		
-		//This needs better handling....
-		currentmA = ccVal*8.44f;
+		int32_t cc_counts = cc_sample;
+
+		// The BQ76930 current LSB is 8.44 mA with the 1 mOhm sense resistor.
+		currentmA = (cc_counts * 844) / 100;
 			
-		//Ignore tiny values.
-		if ( (ccVal > 0 && ccVal > 2)  || (ccVal < 0 && ccVal < -2) )  {
-			ccVal *= 8.44f; //8.44microVolts per LSB.
-			//i = V/R
-			//sense resistor = 1mOhm
-			//microV / milliOhms gives current in mA.   
-			//so ccVal has current in mA.
-			//Dividing by 14400 would give mAh. (number of 250 ms periods in 1 hour.)
-			//Dividing by 14.4 will give microAH (what we want)
-			ccVal /= 14.4f;
+		// Ignore tiny samples, but retain the fractional charge from real samples.
+		if (cc_counts > COULOMB_COUNTER_DEADBAND_COUNTS ||
+			cc_counts < -COULOMB_COUNTER_DEADBAND_COUNTS) {
+			// 8.44 / 14.4 uAh per count is exactly 211 / 360.
+			int32_t charge_numerator = cc_counts * 211 + coulomb_charge_remainder;
+			int32_t charge_delta_uah = charge_numerator / 360;
+			coulomb_charge_remainder = charge_numerator % 360;
 		
-			eeprom_data.current_charge_level += ccVal;
+			eeprom_data.current_charge_level += charge_delta_uah;
 						
 			//We thought the pack was full, but it's still charging, so we need to update its' size.		
 			if (eeprom_data.current_charge_level > eeprom_data.total_pack_capacity) {
