@@ -73,6 +73,42 @@ struct bms_charging_trigger_state {
 };
 
 static struct bms_charging_trigger_state bms_charging_trigger_state;
+static int32_t bms_last_saved_charge_level;
+
+#ifdef SERIAL_DEBUG
+static void bms_report_eeprom_failure(const char *operation, int status) {
+	sprintf(debug_msg_buffer, "EEPROM %s failed (%d)\r\n", operation, status);
+	serial_debug_send_message(debug_msg_buffer);
+}
+#endif
+
+static void bms_note_charge_state_saved(void) {
+	bms_last_saved_charge_level = eeprom_data.current_charge_level;
+}
+
+static bool bms_checkpoint_charge_state_now(void) {
+	int status = eeprom_write();
+	if (status != STATUS_OK) {
+#ifdef SERIAL_DEBUG
+		bms_report_eeprom_failure("write", status);
+#endif
+		return false;
+	}
+	bms_note_charge_state_saved();
+#ifdef SERIAL_DEBUG
+	serial_debug_send_message("EEPROM charge checkpoint saved\r\n");
+#endif
+	return true;
+}
+
+static void bms_checkpoint_charge_state_if_due(void) {
+	int32_t charge_change = eeprom_data.current_charge_level - bms_last_saved_charge_level;
+
+	if (charge_change >= SOC_EEPROM_CHECKPOINT_UAH ||
+		charge_change <= -SOC_EEPROM_CHECKPOINT_UAH) {
+		bms_checkpoint_charge_state_now();
+	}
+}
 
 static bool bms_get_lowest_cell_voltage(uint16_t *lowest_cell_voltage) {
 	if (!bq7693_update_cell_voltages()) {
@@ -470,12 +506,17 @@ void bms_init() {
 	// EEPROM initialization can signal errors through LEDs, so initialize them first.
 	leds_init();
 	//Init eeprom emulator
-	eeprom_init();
-	eeprom_read();
-	bms_woke_from_sleep = eeprom_consume_sleep_wakeup_flag();
+	int eeprom_status = eeprom_init();
+	if (eeprom_status == STATUS_OK) {
+		eeprom_status = eeprom_read();
+	}
+	if (eeprom_status == STATUS_OK) {
+		bms_note_charge_state_saved();
+		eeprom_status = eeprom_consume_sleep_wakeup_flag(&bms_woke_from_sleep);
+	}
 	
 	//BQ7693 init
-	bq7693_init();
+	(void)bq7693_init();
 
 	// A true power-up may check cell voltage immediately on trigger. A sleep wake
 	// keeps its existing post-output grace window, so it can enable output now.
@@ -485,13 +526,25 @@ void bms_init() {
 	
 #ifdef SERIAL_DEBUG
 	serial_debug_init();
+	if (eeprom_status != STATUS_OK) {
+		bms_report_eeprom_failure("initialization", eeprom_status);
+	}
 #endif
 	
 	//Initialise the USART we need to talk to the vacuum cleaner
 	serial_init();	
 	
 	//Only show the welcome sequence on true power-up or reset, not on a wake from sleep.
-	if (!bms_woke_from_sleep && eeprom_should_show_startup_sequence()) {
+	bool show_startup_sequence = true;
+	if (!bms_woke_from_sleep) {
+		int startup_status = eeprom_should_show_startup_sequence(&show_startup_sequence);
+		if (startup_status != STATUS_OK) {
+#ifdef SERIAL_DEBUG
+			bms_report_eeprom_failure("startup flag", startup_status);
+#endif
+		}
+	}
+	if (!bms_woke_from_sleep && show_startup_sequence) {
 		// Reclaim all LED pins as GPIO outputs, as done before the charger-unplug sequence.
 		leds_pwm_disable();
 		leds_sequence();
@@ -508,6 +561,10 @@ bool bms_is_safe_to_discharge(bool check_undertemp) {
 	//Clear error status.
 	bms_error = BMS_ERR_NONE;
 	bool skip_wake_flat_fault = false;
+	if (!bq7693_is_initialized()) {
+		bms_error = BMS_ERR_I2C_FAIL;
+		return false;
+	}
 
 	if (bms_wake_skip_flat_fault_once) {
 		bms_wake_skip_flat_fault_once = false;
@@ -619,6 +676,10 @@ bool bms_is_safe_to_discharge(bool check_undertemp) {
 bool bms_is_safe_to_charge() {
 	//Clear error status.
 	bms_error = BMS_ERR_NONE;
+	if (!bq7693_is_initialized()) {
+		bms_error = BMS_ERR_I2C_FAIL;
+		return false;
+	}
 	
 	if (!bq7693_update_cell_voltages()) {
 		bms_error = BMS_ERR_I2C_FAIL;
@@ -755,8 +816,24 @@ void bms_handle_sleep() {
 	if (bms_get_lowest_cell_voltage(&lowest_cell_voltage)) {
 		eeprom_data.lowest_cell_voltage = lowest_cell_voltage;
 	}
-	eeprom_write();
-	eeprom_mark_sleep_wakeup();
+	int32_t sleep_charge_change = eeprom_data.current_charge_level - bms_last_saved_charge_level;
+	if (sleep_charge_change >= SOC_EEPROM_SLEEP_CHECKPOINT_UAH ||
+		sleep_charge_change <= -SOC_EEPROM_SLEEP_CHECKPOINT_UAH) {
+		bms_checkpoint_charge_state_now();
+	}
+#ifdef SERIAL_DEBUG
+	else {
+		serial_debug_send_message("EEPROM charge checkpoint not saved - min. threshold not reached\r\n");
+	}
+#endif
+
+	// This separate write is required to preserve the fast sleep-wake path.
+	int sleep_flag_status = eeprom_mark_sleep_wakeup();
+	if (sleep_flag_status != STATUS_OK) {
+#ifdef SERIAL_DEBUG
+		bms_report_eeprom_failure("sleep flag", sleep_flag_status);
+#endif
+	}
 
 	// A watchdog reset is not a valid sleep wake-up. Only trigger or charger
 	// activity should restart the BMS after standby.
@@ -842,6 +919,8 @@ void bms_handle_discharging() {
 				}
 			}
 		}
+
+		bms_checkpoint_charge_state_if_due();
 		
 		//Send the USART traffic we need to supply to keep the cleaner running
 		serial_send_next_message();
@@ -852,6 +931,7 @@ void bms_handle_discharging() {
 void bms_handle_fault() {
 	//Turn all the LEDs off.
 	leds_off();
+	bool pack_empty_checkpoint_saved = false;
 	
 	//Show the error status and continue to show it, until trigger released and charger unplugged.
 	do {
@@ -862,7 +942,13 @@ void bms_handle_fault() {
 			//We also need to update the pack capacity as it's flat at this point.
 			if (eeprom_data.current_charge_level > 0) {
 				eeprom_data.total_pack_capacity -= eeprom_data.current_charge_level;
-				eeprom_data.current_charge_level = 0;				
+				eeprom_data.current_charge_level = 0;
+			}
+			// The interrupt may already have clamped SoC to zero before this
+			// voltage fault is processed, so checkpoint the first fault entry.
+			if (!pack_empty_checkpoint_saved) {
+				bms_checkpoint_charge_state_now();
+				pack_empty_checkpoint_saved = true;
 			}
 		}
 		else {
@@ -963,6 +1049,8 @@ void bms_handle_charging() {
 			bms_state = BMS_FAULT;
 			return;
 		}
+
+		bms_checkpoint_charge_state_if_due();
 				
 		if ( !port_pin_get_input_level(CHARGER_CONNECTED_PIN)) {
 			//Charger unplugged.
@@ -1034,6 +1122,7 @@ void bms_handle_charging() {
 
 			//Set charge level to equal capacity.
 			eeprom_data.total_pack_capacity = eeprom_data.current_charge_level;
+			bms_checkpoint_charge_state_now();
 
 #ifdef SERIAL_DEBUG
 			serial_debug_send_message("Charging stopped - cells at capacity\r\n");
