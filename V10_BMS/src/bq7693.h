@@ -23,7 +23,8 @@
 
 #define THERMISTOR_BETA_VALUE 3435.0  // typical value for Semitec 103AT-5 thermistor
 
-void bq7693_init(void);
+bool bq7693_init(void);
+bool bq7693_is_initialized(void);
 bool bq7693_read_register(uint8_t addr, size_t len, uint8_t *buf);
 bool bq7693_write_register(uint8_t addr, uint8_t data);
 

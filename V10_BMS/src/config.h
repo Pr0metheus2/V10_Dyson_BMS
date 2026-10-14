@@ -54,6 +54,11 @@
 // Ignore small BQ76930 coulomb-counter samples to avoid integrating idle noise.
 #define COULOMB_COUNTER_DEADBAND_COUNTS 2
 
+// Persist the coulomb-counter SoC after this much charge movement. EEPROM
+// writes are performed from the foreground state handlers, never the BQ IRQ.
+#define SOC_EEPROM_CHECKPOINT_UAH 200000L
+#define SOC_EEPROM_SLEEP_CHECKPOINT_UAH 100000L
+
 // Firmware version is injected from CMake so build output names stay in sync.
 
 // #define SERIAL_DEBUG 1 // Uncomment to enable serial debug via the spare USART on the programming pins header

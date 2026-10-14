@@ -30,11 +30,11 @@ volatile struct eeprom_data {
 
 int eeprom_init(void);
 
-int eeprom_read();
-int eeprom_write();
-bool eeprom_should_show_startup_sequence(void);
-bool eeprom_consume_sleep_wakeup_flag(void);
-void eeprom_mark_sleep_wakeup(void);
+int eeprom_read(void);
+int eeprom_write(void);
+int eeprom_should_show_startup_sequence(bool *show_sequence);
+int eeprom_consume_sleep_wakeup_flag(bool *woke_from_sleep);
+int eeprom_mark_sleep_wakeup(void);
 
 int eeprom_fuses_set(void);
 

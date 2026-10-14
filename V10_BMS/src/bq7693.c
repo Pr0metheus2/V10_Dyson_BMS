@@ -20,6 +20,7 @@ volatile uint16_t bq7693_cell_voltages[7];
 
 volatile int bq7693_adc_gain = 0;   // in uV/LSB
 volatile int8_t bq7693_adc_offset = 0; //in mV
+static bool bq7693_initialized;
 
 // maps for settings in chip protection registers
 
@@ -61,41 +62,51 @@ void bq7693_i2c_init() {
 	i2c_master_enable(&i2c_master_instance);
 }
 
-void bq7693_init() {
+bool bq7693_init(void) {
+	bq7693_initialized = false;
 	bq7693_i2c_init();
-	bq7693_write_register(SYS_CTRL2, 0x00); //Ensure that charge/discharge FETs are off so pack is safe.
-		
-	//Read the ADC offset and gain values and store	
-	uint8_t scratch1, scratch2;
-	bq7693_read_register(ADCOFFSET, 1, &scratch1);  // convert from 2's complement
+	bool success = bq7693_write_register(SYS_CTRL2, 0x00); //Ensure that charge/discharge FETs are off so pack is safe.
+
+	// Defaults prevent failed calibration reads from becoming random voltages.
+	uint8_t scratch1 = 0;
+	uint8_t scratch2 = 0;
+	bq7693_adc_gain = 365;
+	bq7693_adc_offset = 0;
+	success &= bq7693_read_register(ADCOFFSET, 1, &scratch1);  // convert from 2's complement
 	bq7693_adc_offset = (int8_t)scratch1;
-	bq7693_read_register(ADCGAIN1, 1, &scratch1);
-	bq7693_read_register(ADCGAIN2, 1, &scratch2);
+	success &= bq7693_read_register(ADCGAIN1, 1, &scratch1);
+	success &= bq7693_read_register(ADCGAIN2, 1, &scratch2);
 	bq7693_adc_gain = 365 + ((( scratch1 & 0x0C) << 1) | (( scratch2 & 0xE0) >> 5)); // uV/LSB
-	
-	bq7693_write_register(PROTECT1, 0x82);
-	bq7693_write_register(PROTECT2, 0x04);
+
+	success &= bq7693_write_register(PROTECT1, 0x82);
+	success &= bq7693_write_register(PROTECT2, 0x04);
 	
 	//This sets overvolt and undervolt delays to 1 second.  
-	bq7693_write_register(PROTECT3, 0x00);
+	success &= bq7693_write_register(PROTECT3, 0x00);
 	
 	//Calculate OV and UV trip voltages.
 	scratch1 = (((((long)CELL_OVERVOLTAGE_TRIP - bq7693_adc_offset)*1000)/ bq7693_adc_gain) >> 4) & 0xFF;
-	bq7693_write_register(OV_TRIP, scratch1); 
+	success &= bq7693_write_register(OV_TRIP, scratch1);
 	
 	scratch1 = (((((long)CELL_UNDERVOLTAGE_TRIP - bq7693_adc_offset) * 1000) / bq7693_adc_gain) >> 4) & 0xFF;
-	bq7693_write_register(UV_TRIP, scratch1);
-			
-	bq7693_write_register(CELLBAL1, 0x00); //Disable cell balancing 1
-	bq7693_write_register(CELLBAL2, 0x00); //Disable cell balancing 2
-	
-	bq7693_write_register(CC_CFG, 0x19); //'magic' value as per datasheet.
-	bq7693_write_register(SYS_CTRL2, 0x40); //CC_EN - enable continuous operation of coulomb counter
+	success &= bq7693_write_register(UV_TRIP, scratch1);
 
-	bq7693_write_register(SYS_CTRL1, 0x18); //ADC_EN, TEMP_SEL	
-	
-	bq7693_read_register(SYS_STAT, 1, &scratch1);
-	bq7693_write_register(SYS_STAT, scratch1); //Explicitly clear any set bits in the SYS_STAT register by writing them back. 
+	success &= bq7693_write_register(CELLBAL1, 0x00); //Disable cell balancing 1
+	success &= bq7693_write_register(CELLBAL2, 0x00); //Disable cell balancing 2
+
+	success &= bq7693_write_register(CC_CFG, 0x19); //'magic' value as per datasheet.
+	success &= bq7693_write_register(SYS_CTRL2, 0x40); //CC_EN - enable continuous operation of coulomb counter
+
+	success &= bq7693_write_register(SYS_CTRL1, 0x18); //ADC_EN, TEMP_SEL
+
+	success &= bq7693_read_register(SYS_STAT, 1, &scratch1);
+	success &= bq7693_write_register(SYS_STAT, scratch1); //Explicitly clear any set bits in the SYS_STAT register by writing them back.
+	bq7693_initialized = success;
+	return success;
+}
+
+bool bq7693_is_initialized(void) {
+	return bq7693_initialized;
 }
 
 bool bq7693_read_register(uint8_t addr, size_t len, uint8_t *buf) {
