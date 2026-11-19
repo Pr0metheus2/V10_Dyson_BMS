@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions
 
-REM Programs an already-unlocked BMS through SEGGER J-Link Commander.
+REM Programs a locked/unlocked BMS through SEGGER J-Link Commander.
 REM This script does also a chip erase and change the security state if needed.
 
 set "SCRIPT_DIR=%~dp0"
