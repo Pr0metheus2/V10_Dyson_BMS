@@ -1,0 +1,47 @@
+How to Erase/Flash with CMSIS-DAP (Daplink) Programmer with OpenOCD
+===================================================================
+CMSIS-DAP has dual modes: a RISC-V mode and an ARM CMSIS-DAP mode.
+Out of the box or after a reset, these modules default to RISC-V mode, 
+which makes OpenOCD report "Unable to find a matching CMSIS-DAP device".
+You must force the hardware into ARM Mode before OpenOCD can recognize it.
+
+*** Step 1: Switch the Programmer to ARM Mode
+
+- Unplug the programmer from your computer.
+- Use a jumper or a small piece of wire to short the TX pin directly to the GND pin (TX + GND).
+- Plug the programmer back into the USB port with TX and GND shorted.
+- Look at the blue onboard LED indicator:
+	If the Blue LED stays solidly ON (or turns on): It has successfully switched to ARM Mode.
+- Remove the TX-GND short while it's still powered up. The programmer will save this setting 
+  in its internal flash memory and stay in ARM mode for future uses.
+
+*** Step 2: Wiring
+Because CMSIS-DAP board does not have a physical reset pin, DO NOT connect either the RESET or 3.3V pin!
+
+We connect only these pins:
+
+CMSIS-DAP	Dyson V10 Board		Note
+================================================
+GND			GND					Ground loop reference
+SWCLK		CLK / SWCLK			Serial Wire Clock
+SWDIO		DIO / SWDIO			Serial Wire Data Input/Output
+RST			RESET / NRST		Required to break original flash locks
+
+*** Step 3: The  Hardware Erase Bypass
+
+openocd -f interface/cmsis-dap.cfg -f target/at91samdXX.cfg -c "transport select swd" -c "adapter speed 100" -c "reset_config srst_only" -c "init; reset halt; at91samd chip-erase; program V10_BMS.elf verify; reset run; shutdown"
+
+
+The factory security lockbits have officially been wiped, and the flash memory is clean.
+
+
+Test the Connection Base: Run just the connection initialization command to see if SWDIO returns to 1 and reads the IDR again:
+
+openocd -f interface/cmsis-dap.cfg -f target/at91samdXX.cfg -c "transport select swd" -c "adapter speed 100" -c "reset_config none" -c "init"
+
+
+
+*** Step 4: Flash the Firmware (V10_BMS.elf) - change accordingly
+
+Original FW flash working:
+openocd -f interface/cmsis-dap.cfg -c "transport select swd" -c "adapter speed 100" -c "reset_config none" -c "swd newdap samd cpu -expected-id 0x0bc11477" -c "dap create samd.dap -chain-position samd.cpu" -c "target create samd.cpu cortex_m -dap samd.dap" -c "flash bank samd.flash at91samd 0x00000000 0 0 0 samd.cpu" -c "init" -c "reset halt" -c "program V10_BMS_1.3.elf verify reset" -c "shutdown"

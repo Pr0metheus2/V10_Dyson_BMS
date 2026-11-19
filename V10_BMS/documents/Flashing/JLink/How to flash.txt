@@ -1,0 +1,9 @@
+1. Download the latest J-Link Software from here and install it: https://www.segger.com/downloads/jlink/
+2. Put V10_BMS_x.x.elf in same folder where JLink_Flash_BMS.bat is located.
+3. Connect J-Link OB ARM programmer to BMS only via GND, SWDIO, SWDLK
+4. Run JLink_Flash_BMS.bat
+	4.1 If BMS is locked (original Dyson FW), JLink returns errors and BMS goes into halt state. Continue with step 4.2.
+	4.2 Run JLink_Flash_BMS.bat again, prompt window will open, just click Yes.
+5. Done, enjoy.
+
+
