@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 
 REM Programs an already-unlocked BMS through SEGGER J-Link Commander.
-REM This script does not issue a chip erase or change the security state.
+REM This script does also a chip erase and change the security state if needed.
 
 set "SCRIPT_DIR=%~dp0"
 set "JLINK_EXE=%ProgramFiles%\SEGGER\JLink\JLink.exe"
@@ -14,7 +14,7 @@ if not exist "%JLINK_EXE%" (
     exit /b 1
 )
 
-REM Find the latest V10_BMS_*.elf using the same selection as OpenOCD.
+REM Find the latest V10_BMS_*.elf
 set "ELF="
 pushd "%SCRIPT_DIR%" >nul || exit /b 1
 for /f "delims=" %%F in ('powershell -NoProfile -Command "Get-ChildItem V10_BMS_*.elf | Sort-Object {[version](($_.BaseName -replace '^V10_BMS_',''))} -Descending | Select-Object -First 1 -ExpandProperty Name"') do set "ELF=%%F"
