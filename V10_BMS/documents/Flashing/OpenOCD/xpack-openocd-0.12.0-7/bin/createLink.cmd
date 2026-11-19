@@ -1,0 +1,1 @@
+mklink V10_BMS_1.2.elf "c:\MEGA\GitHub\V10_Dyson_BMS firmware\V10_BMS_1.2.elf"
